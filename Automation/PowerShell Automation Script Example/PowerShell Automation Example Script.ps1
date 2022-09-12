@@ -193,9 +193,9 @@ try
 
     
         
-    # Get AD geam members.
+    # Get AD group members.
     $GroupName = 'Administrators'
-    [array]$CurrentGroupMembers = Get-ADGroupMember -Identity $GroupName
+    [array]$CurrentGroupMembers = Get-ADGroupMember -Identity $GroupName @ADModuleCmdletParameters
 
     # Log debug info, if enabled.
     if ($LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Group Members (SamAccountName): $($CurrentGroupMembers.SamAccountName -join ', ')"}
