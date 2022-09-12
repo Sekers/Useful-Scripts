@@ -3,7 +3,7 @@ PowerShell: Check if Program or Update is Installed and Download with BITS and I
 
 https://www.grimadmin.com/article.php/powershell-check-program-update-installed-download-bits-install
 
-I recently wrote a PowerShell script for Windows that will check if a program or update is installed and, if not, download it using BITS in low priority, verify the download hash, and then install it and copy the verbose log to a central repository. The example is for the current latest Microsoft Surface Pro 7 firmware, but it can be adapted for just about any installer.
+I recently wrote a PowerShell script for Windows that will check if a program or update is installed and, if not, download it using [BITS](https://docs.microsoft.com/en-us/windows/win32/bits/background-intelligent-transfer-service-portal) in low priority, verify the download hash, and then install it and copy the verbose log to a central repository. The example is for the current latest Microsoft Surface Pro 7 firmware, but it can be adapted for just about any installer.
 
 <p>Some design considerations for the script are explained below. While solid and production-ready, sometimes I try to use these scripts as a teaching method for newer sysadmins.</p>
 
