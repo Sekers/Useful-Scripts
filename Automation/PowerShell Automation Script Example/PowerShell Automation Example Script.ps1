@@ -1,4 +1,6 @@
 # PowerShell Automation Script Example
+# A sample PowerShell script that can be used as a template for scheduled tasks or other automation and includes warning/error email support,
+# normal and debug logging, as well an example on how to use external configuration files.
 
 ############
 # OVERVIEW #
