@@ -1,0 +1,37 @@
+{
+    "General": {
+        "ScriptName": "PowerShell Automation",
+        "EmailonError": true,
+        "EmailonWarning": false,
+        "ADCredential_Username": "",
+        "ADCredential_EncryptedPassword": ""
+    },
+    "Logging": {
+        "Name": "logfile",
+        "InstanceName": "<PowerShell Automation Script Example>",
+        "FilePath": "$PSScriptRoot\\Logging\\PowerShell Automation Script Example-%date%.csv",
+        "FileType": "CSV",
+        "LogRotatePath": "$PSScriptRoot\\Logging\\PowerShell Automation Script Example-*.csv",
+        "LogRetentionTime": "30d",
+        "Wait": true,
+        "Enabled": true
+    },
+    "Email": {
+        "From": {
+            "Name": "PowerShell Automation Script Example Script",
+            "Email": "example@contoso.com"
+        },
+        "ReplyTo": "support@contoso.com",
+        "To": "alerts@contoso.com",
+        "Username": "example@contoso.com",
+        "EncryptedPassword": "01000000d08c9ddf0115d1118c7a00c04fc297eb01000000c08a19800ad9cd4e85bf2f363ee9a61d0000000002000000000003660000c000000010000000524580a52f0dc9b42f0168781b44fcf70000000004800000a000000010000000198fa6ff317c3ce162e1cb3a6a2a8f9208000000b742e7d2164583fe14000000c071c8c9954fcfc4f5521f51438c9f02bd1a95fa",
+        "Priority": "High",
+        "Smtpserver": "smtp.office365.com",
+        "UseSsl": true,
+        "Port": "587"
+    },
+    "Debugging": {
+        "VerbosePreference": "SilentlyContinue",
+        "LogDebugInfo": true
+    }
+}
