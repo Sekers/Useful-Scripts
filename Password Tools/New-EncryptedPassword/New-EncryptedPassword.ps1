@@ -8,7 +8,7 @@ Write-Host "The encrypted standard string can be converted back to its secure st
 Write-Host "Note: The password can only be decrypted by the same account on the same computer it was encrypted from."
 Write-Host 'Optionally use the "-VerifyADAccount" switch to first check the submitted credentials against your Active Directory domain for verification (requires the Microsoft ActiveDirectory PowerShell Module).' 
 Write-Host "`n"
-function New-SecurePassword
+function New-EncryptedPassword
 {
     [CmdletBinding()]
     param (
@@ -85,9 +85,9 @@ function New-SecurePassword
 
 if ($VerifyADAccount)
 {
-    New-SecurePassword -VerifyADAccount
+    New-EncryptedPassword -VerifyADAccount
 }
 else
 {
-    New-SecurePassword
+    New-EncryptedPassword
 }

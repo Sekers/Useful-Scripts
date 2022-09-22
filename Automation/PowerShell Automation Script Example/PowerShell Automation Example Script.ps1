@@ -9,7 +9,7 @@
 # This script does the following:
 # 1. Does some Active Directory lookups.
 
-# If supplied, passwords in the configuration file need to be encrypted. Use New-SecurePassword (https://github.com/Sekers/Useful-Scripts) to create an encrypted standard string of any desired password.
+# If supplied, passwords in the configuration file need to be encrypted. Use New-EncryptedPassword (https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to create an encrypted standard string of any desired password.
 # If you leave the Active Directory username 'ADCredential_Username' configuration field empty, it will connect to domain controllers using the account that the script is running under.
 
 #################
