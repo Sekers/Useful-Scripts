@@ -78,7 +78,7 @@ $ErrorActionPreference = "Stop"
 $config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
 
 # Set General Properties
-[string]$ScriptName = $config.ScriptName
+[string]$ScriptName = $config.General.ScriptName
 [bool]$EmailonError = $config.General.EmailonError
 [bool]$EmailonWarning = $config.General.EmailonWarning
 
