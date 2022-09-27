@@ -249,7 +249,6 @@ try
         {
             Write-PSFMessage -Level Error -Message "There has been an error emailing the error alert message: $_" -Tag 'Failure' -ErrorRecord $_
         }
-
     }
 
     # End Logging Message
