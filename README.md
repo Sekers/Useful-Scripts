@@ -6,6 +6,8 @@ A collection of useful scripts.
 - [PowerShell Automation Script Example:](https://github.com/Sekers/Useful-Scripts/tree/main/Automation/PowerShell%20Automation%20Script%20Example) A sample PowerShell script that can be used as a template for scheduled tasks or other automation and includes warning/error email support, normal and debug logging, as well an example on how to use external configuration files.
 
 ### Deployment
+- [BatchFile-Elevate-Prompt:](/tree/main/Deployment/BatchFile-Elevate-Prompt) A batch file script that will attempt to elevate a .CMD or .BAT batch file using the standard UAC prompt. You can use this to call installers that require administrator privileges or other actions that require elevation on the local machine.
+
 - [PowerShell-Install-BITS:](https://github.com/Sekers/Useful-Scripts/tree/main/Deployment/PowerShell-Install-BITS) A sample PowerShell script that checks if a program or update is installed and, if not, then downloads the installer/updater with [BITS](https://docs.microsoft.com/en-us/windows/win32/bits/background-intelligent-transfer-service-portal) and installs. More info in the [README](https://github.com/Sekers/Useful-Scripts/tree/main/Deployment/PowerShell-Install-BITS).
 
 ### Password Tools
