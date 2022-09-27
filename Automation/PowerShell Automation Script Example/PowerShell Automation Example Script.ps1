@@ -167,7 +167,7 @@ try
 
             if ($null -eq $DomainUserName)
             {
-                Write-Error "Please make sure that your username is in either contoso\username or username@contoso.com format."
+                Write-Error "Please make sure that your username is in either [domain]]\username or username@[domain] format."
                 Return
             }
         }
