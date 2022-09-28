@@ -9,7 +9,7 @@
 .history/
 
 # Ignore Config & Logging & CSV Export Folders
-/M365 Teams Sync/Config/config_general.json
-/M365 Teams Sync/Config/config_group_team_mapping.json
-/M365 Teams Sync/Config/config_remove_account_exclusions.json
-/M365 Teams Sync/Logging
+/Config/config_general.json
+/Config/config_group_team_mapping.json
+/Config/config_remove_account_exclusions.json
+/Logging
