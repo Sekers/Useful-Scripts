@@ -1,0 +1,10 @@
+[  
+  {
+    "UserPrincipalName": "admin@domain.com",
+    "Id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  },
+  {
+    "UserPrincipalName": "ceo@domain.com",
+    "Id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  }
+]

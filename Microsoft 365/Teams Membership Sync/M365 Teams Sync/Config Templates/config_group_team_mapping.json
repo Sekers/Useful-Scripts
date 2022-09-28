@@ -1,0 +1,48 @@
+[  
+  {
+    "MapType": "Team",
+    "M365_Team_DisplayName": "Administration",
+    "M365_Team_ID": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "M365_Channel_DisplayName": "",
+    "M365_Channel_ID": "",
+    "Groups":
+    [
+      {
+        "M365_Group_DisplayName": "Administration",
+        "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      },
+      {
+        "M365_Group_DisplayName": "Administrative Assistants",
+        "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      }
+    ]
+  },
+  {
+    "MapType": "Team",
+    "M365_Team_DisplayName": "Business",
+    "M365_Team_ID": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "M365_Channel_DisplayName": "",
+    "M365_Channel_ID": "",
+    "Groups":
+    [
+      {
+      "M365_Group_DisplayName": "Business",
+      "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      }
+    ]
+  },
+  {
+    "MapType": "Channel",
+    "M365_Team_DisplayName": "Business",
+    "M365_Team_ID": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "M365_Channel_DisplayName": "Payroll",
+    "M365_Channel_ID": "19:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx@thread.tacv2",
+    "Groups":
+    [
+      {
+        "M365_Group_DisplayName": "Payroll Managers",
+        "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      }
+    ]
+  }
+]
