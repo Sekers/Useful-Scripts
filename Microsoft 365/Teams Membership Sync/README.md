@@ -2,7 +2,7 @@
 
 ## Overview
 
-A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M365 Team & Team Channel groups. This script can be used to dynamically update Team and Team Channel members from groups. This is useful if you do not have the licensing necessary for dynamic group updates. It also has the added benefit of logging + email alerts and optionally skipping the removing of members who no longer are in the mapped group(s), allowing them to remain members of Teams and Channels they have perviously been added to.
+A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M365 Team & Team Channel groups. This script can be used to dynamically update Team and Team Channel members from groups. This is useful if you do not have the licensing necessary for [dynamic membership rules for Azure AD groups](https://learn.microsoft.com/en-us/azure/active-directory/enterprise-users/groups-dynamic-membership). It also has the added benefit of logging + email alerts and optionally skipping the removing of members who no longer are in the mapped group(s), allowing them to remain members of Teams and Channels they have perviously been added to.
 
 ---
 
