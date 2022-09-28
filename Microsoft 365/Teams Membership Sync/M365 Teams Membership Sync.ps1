@@ -103,7 +103,8 @@ $EmailArguments = @{
 # Import Modules #
 ##################
 
-# Check For Microsoft.Graph # Don't import the regular 'Microsoft.Graph' module because of some issues with it doing it that way.
+# Check For Microsoft.Graph Module.
+# Don't import the regular 'Microsoft.Graph' module because of some issues with doing it that way.
 Import-Module 'Microsoft.Graph.Authentication'
 Import-Module 'Microsoft.Graph.Groups'
 Import-Module 'Microsoft.Graph.Teams'
@@ -127,9 +128,9 @@ if ($EmailonError -or $EmailonWarning)
     }
 }
 
+# Check For PowerShell Framework Module.
 if ($config.Logging.Enabled)
 {
-    # Check For PowerShell Framework Module.
     Import-Module PSFramework
     if (!(Get-Module -Name "PSFramework"))
     {
