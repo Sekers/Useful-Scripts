@@ -8,7 +8,7 @@
 # Local History for Visual Studio Code
 .history/
 
-# Ignore Config & Logging & CSV Export Folders
+# Ignore Config & Logging
 /Config/config_general.json
 /Config/config_group_team_mapping.json
 /Config/config_remove_account_exclusions.json
