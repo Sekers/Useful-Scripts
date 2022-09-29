@@ -259,31 +259,23 @@ try
         # Get group membership.
         # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
         $Members = [System.Collections.ArrayList]::new()
-        if ($EnableGroupRecursion)
-        {
-            foreach ($mapGroup in $mapping.Groups)
+        foreach ($mapGroup in $mapping.Groups)
+        {        
+            if ($EnableGroupRecursion)
             {
-                foreach ($listItemToAdd in (Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All| Select-Object *))
-                {
-                    # Add if not already in the list.
-                    if ($Members.Id -notcontains $listItemToAdd.Id)
-                    {
-                        [void]$Members.Add($ListItemToAdd)
-                    }
-                }
+                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All| Select-Object *
             }
-        }
-        else
-        {
-            foreach ($mapGroup in $mapping.Groups)
+            else
             {
-                foreach ($listItemToAdd in (Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *))
+                $ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+            }
+
+            foreach ($listItemToAdd in $ListItemsToAdd)
+            {
+                # Add if not already in the list.
+                if ($Members.Id -notcontains $listItemToAdd.Id)
                 {
-                    # Add if not already in the list.
-                    if ($Members.Id -notcontains $listItemToAdd.Id)
-                    {
-                        [void]$Members.Add($ListItemToAdd)
-                    }
+                    [void]$Members.Add($ListItemToAdd)
                 }
             }
         }
@@ -368,31 +360,23 @@ try
         # Get group membership.
         # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
         $Members = [System.Collections.ArrayList]::new()
-        if ($EnableGroupRecursion)
+        foreach ($mapGroup in $mapping.Groups)
         {
-            foreach ($mapGroup in $mapping.Groups)
+            if ($EnableGroupRecursion)
             {
-                foreach ($listItemToAdd in (Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *))
-                {
-                    # Add if not already in the list.
-                    if ($Members.Id -notcontains $listItemToAdd.Id)
-                    {
-                        [void]$Members.Add($ListItemToAdd)
-                    }
-                }
+                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
             }
-        }
-        else
-        {
-            foreach ($mapGroup in $mapping.Groups)
+            else
             {
-                foreach ($listItemToAdd in (Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *))
+                $ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+            }
+
+            foreach ($listItemToAdd in $ListItemsToAdd)
+            {
+                # Add if not already in the list.
+                if ($Members.Id -notcontains $listItemToAdd.Id)
                 {
-                    # Add if not already in the list.
-                    if ($Members.Id -notcontains $listItemToAdd.Id)
-                    {
-                        [void]$Members.Add($ListItemToAdd)
-                    }
+                    [void]$Members.Add($ListItemToAdd)
                 }
             }
         }
