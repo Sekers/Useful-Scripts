@@ -71,9 +71,6 @@ function Get-ComputerNameFromParameter {
 # SET VARIABLES FROM CONFIG FILE #
 ##################################
 
-# Stop on Errors
-$ErrorActionPreference = "Stop"
-
 # Import General Configuration Settings
 $config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
 
@@ -124,6 +121,9 @@ $EmailArguments = @{
 ################
 # PERFORM WORK #
 ################
+
+# Stop on Errors
+$ErrorActionPreference = "Stop"
 
 # Set Logging Data
 Set-PSFLoggingProvider @paramSetPSFLoggingProvider
