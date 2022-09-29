@@ -36,7 +36,7 @@
         "ReplyTo": "support@domain.com",
         "To": "support@domain.com",
         "Username": "TeamsMembershipSync@domain.com",
-        "EncryptedPassword": "",
+        "Password": "",
         "Priority": "High",
         "Smtpserver": "smtp.office365.com",
         "UseSsl": true,

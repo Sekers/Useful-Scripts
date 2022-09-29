@@ -72,9 +72,17 @@ $paramSetPSFLoggingProvider = @{
 }
 
 # Configure Email Alerts.
-if (-not [string]::IsNullOrEmpty($config.Email.EncryptedPassword))
+if (-not [string]::IsNullOrEmpty($config.Email.Password))
 {
-    $EmailArguments_Password = [System.Net.NetworkCredential]::new("", $($config.Email.EncryptedPassword | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
+    # Try to decrypt the password in case it's stored as an encrypted standard string.
+    try
+    {
+        $EmailArguments_Password = [System.Net.NetworkCredential]::new("", $($config.Email.Password | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
+    }
+    catch # If it's unable to be decrypted it's probably entered in as plain text.
+    {
+        $EmailArguments_Password = $config.Email.Password
+    }
 }
 else
 {
