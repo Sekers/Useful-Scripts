@@ -191,9 +191,9 @@ try
             $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes
         }
         Application {
-            if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Graph App Authentication Type: $MgApp_AuthenticationType"}
             [string]$MgApp_ClientID = $config.General.MgApp_ClientID
             [string]$MgApp_AuthenticationType = $config.General.MgApp_AuthenticationType
+            if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Graph App Authentication Type: $MgApp_AuthenticationType"}
 
             switch ($MgApp_AuthenticationType)
             {
