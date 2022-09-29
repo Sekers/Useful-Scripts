@@ -4,7 +4,7 @@
 
 # This script can be used to dynamically update Team and Team Channel members from Microsoft 365 and Azure AD groups. This is useful if you do not have the
 # licensing necessary for dynamic group updates. It also has the added benefit of logging + email alerts and optionally skipping the removing of members
-# who no longer are in the mapped group(s), allowing them to remain members of Teams and Channels they have perviously been added to.
+# who no longer are in the mapped group(s), allowing them to remain members of Teams and Channels they have previously been added to.
 
 ############
 # OVERVIEW #
