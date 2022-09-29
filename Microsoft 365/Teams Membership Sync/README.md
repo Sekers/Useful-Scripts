@@ -16,7 +16,7 @@ A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M
 - Authentication options:
     - Delegated Permissions (run using a signed-in user).
     - Application Permissions (application consented by an administrator and authenticated by certificate or secret).
-- Optional non-blocking logging & email alerting (see prerequesite modules).
+- Optional non-blocking logging & email alerting (see prerequisite modules).
 - Debugging options.
 
 ---
