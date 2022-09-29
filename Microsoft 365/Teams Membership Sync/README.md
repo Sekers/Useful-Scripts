@@ -81,7 +81,7 @@ General
 - **MgApp_EncryptedSecret (Encrypted Standard String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'ClientSecret'. Enter the encrypted standard string of the password into this field. An encrypted standard string can be converted back to its secure string format but **only by the same account on the same computer it was encrypted from**. You can use the [New-EncryptedPassword script](https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily convert a password to an encrypted standard string.
 
 Logging
-- Optionally, enter the logging information based on the [documentation](https://psframework.org/documentation/documents/psframework/logging.html) for the PowerShell Framework module. If you do not want to use the logging system, set the 'Enabled' field to false.
+- Optionally, enter the logging information based on the [documentation](https://psframework.org/documentation/documents/psframework/logging.html) for the PowerShell Framework module. If you do not want to use the logging system, set the logging 'Enabled' field to false.
 
 Email
 - Optionally, enter the email provider information based on the [documentation](https://github.com/EvotecIT/Mailozaurr) for the Mailozaurr module. If you do not want to use the email alert system, set both the 'EmailonError' and 'EmailonWarning' fields to false.
