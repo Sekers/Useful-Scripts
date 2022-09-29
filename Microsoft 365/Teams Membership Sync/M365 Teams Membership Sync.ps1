@@ -37,9 +37,6 @@
 # SET VARIABLES FROM CONFIG FILE #
 ##################################
 
-# Stop on Errors.
-$ErrorActionPreference = "Stop"
-
 # Import General Configuration Settings.
 $config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
 
@@ -151,6 +148,9 @@ if ($config.Logging.Enabled)
 ################
 # PERFORM WORK #
 ################
+
+# Stop on Errors.
+$ErrorActionPreference = "Stop"
 
 # If Logging is Enabled, Set Logging Data & Log PowerShell & Module Version Information.
 if ($config.Logging.Enabled)
