@@ -226,7 +226,7 @@ try
         # Get Rid of Extra Line at Beginning
         $CustomWarningMessage = $CustomWarningMessage.Trim()
 
-        # Try to Email Alert Message On Error
+        # Try to Email Alert Message On Warning
         try
         {
                 # Add More Email Attributes
