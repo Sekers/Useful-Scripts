@@ -31,7 +31,7 @@ A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M
 
 ## JSON Configuration Files Information
 
-Make copies of the sample configuration files in the 'Config Templates' folder and place them into the 'Config' folder. Update these configurations using the documentation below.
+Make copies of the sample configuration files in the 'Config Templates' folder and place them into the 'Config' folder. Update these configuration settings using the documentation below.
 
 ---
 
