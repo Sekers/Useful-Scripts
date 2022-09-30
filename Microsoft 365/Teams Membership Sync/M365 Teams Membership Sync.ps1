@@ -192,13 +192,13 @@ try
         }
         Application {
             [string]$MgApp_ClientID = $config.General.MgApp_ClientID
+            [string]$MgApp_TenantID = $config.General.MgApp_TenantID
             [string]$MgApp_AuthenticationType = $config.General.MgApp_AuthenticationType
             if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Graph App Authentication Type: $MgApp_AuthenticationType"}
 
             switch ($MgApp_AuthenticationType)
             {
                 CertificateFile {
-                    $MgApp_TenantID = $config.General.MgApp_TenantID
                     $MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($config.General.MgApp_CertificatePath)
 
                     # Try accessing private key certificate without password using current process credentials.
@@ -224,17 +224,14 @@ try
                     $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -Certificate $MgApp_Certificate
                 }
                 CertificateName {
-                    $MgApp_TenantID = $config.General.MgApp_TenantID
                     $MgApp_CertificateName = $config.General.MgApp_CertificateName
                     $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -CertificateName $MgApp_CertificateName
                 }
                 CertificateThumbprint {
-                    $MgApp_TenantID = $config.General.MgApp_TenantID
                     $MgApp_CertificateThumbprint = $config.General.MgApp_CertificateThumbprint
                     $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -CertificateThumbprint $MgApp_CertificateThumbprint
                 }
                 ClientSecret {
-                    $MgApp_TenantID = $config.General.MgApp_TenantID
                     $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
                     $Body =  @{
                         Grant_Type    = "client_credentials"
