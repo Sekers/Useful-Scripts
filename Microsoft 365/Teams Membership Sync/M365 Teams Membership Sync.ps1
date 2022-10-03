@@ -23,10 +23,6 @@
 # PowerShell Framework Module (for better logging - https://psframework.org/).
 # Mailozaurr PowerShell Module (https://github.com/EvotecIT/Mailozaurr).
 
-#################################
-# DO NOT MODIFY BELOW THIS LINE #
-#################################
-
 #############
 # FUNCTIONS #
 #############
