@@ -41,7 +41,7 @@ JSON file that contains the primary configuration settings for the script.
 
 General
 - **ScriptName (String):** Name of script for email alerts and logging.
-- **EmailonError (Boolean):** Whether to use the email functionality to email an alert on script stopping errors.
+- **EmailonError (Boolean):** Whether to use the email functionality to email an alert on script-stopping errors.
 - **EmailonWarning (Boolean):** Whether to use the email functionality to email an alert on non-critical warnings.
 - **EnableGroupRecursion (Boolean):** Enable group recursion to allow user lookups within nested groups. Otherwise, the script will use direct group members only.
 - **RemoveExtraTeamMembers (Boolean):** Removes Team members who are no longer in any mapped groups for that Team.
