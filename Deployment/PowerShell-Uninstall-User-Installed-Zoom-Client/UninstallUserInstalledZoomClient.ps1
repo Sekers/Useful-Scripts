@@ -1,5 +1,4 @@
 # Check if Zoom is installed by IT Department.
-
 # 32-Bit.
 $DeployedBinaryPath32 = [Environment]::GetFolderPath("ProgramFilesX86") + '\Zoom\bin\Zoom.exe'
 # 64-bit.
