@@ -10,6 +10,8 @@ A collection of useful scripts.
 
 - **[PowerShell-Install-BITS:](/Deployment/PowerShell-Install-BITS)** A sample PowerShell script that checks if a program or update is installed and, if not, then downloads the installer/updater with [BITS](https://docs.microsoft.com/en-us/windows/win32/bits/background-intelligent-transfer-service-portal) and installs. More info in the [README](/Deployment/PowerShell-Install-BITS).
 
+- **[PowerShell-Uninstall-User-Installed-Zoom-Client:](/Deployment/PowerShell-Uninstall-User-Installed-Zoom-Client)** If a deployed installation of the Zoom client application exists (i.e., the IT department installed the app into the Program Files folder for all users), uninstall any per-user installed Zoom clients.
+
 ### Microsoft 365
 - **[M365 Teams Membership Sync:](/Microsoft%20365/Teams%20Membership%20Sync)** A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M365 Team & Team Channel groups. This script can be used to dynamically update Team and Team Channel members from groups. This is useful if you do not have the licensing necessary for [dynamic membership rules for Azure AD groups](https://learn.microsoft.com/en-us/azure/active-directory/enterprise-users/groups-dynamic-membership). It also has the added benefit of logging + email alerts and optionally skipping the removing of members who no longer are in the mapped group(s), allowing them to remain members of Teams and Channels they have previously been added to.
 
