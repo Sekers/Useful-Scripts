@@ -503,7 +503,11 @@ try
     } 
 
     # End Logging Message.
-    if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "---SCRIPT END---"}
+    if ($config.Logging.Enabled)
+    {
+        Write-PSFMessage -Level Important -Message "---SCRIPT END---"
+        Wait-PSFMessage # Make Sure Logging Is Flushed Before Terminating
+    }
 }
 catch
 {
@@ -537,5 +541,9 @@ catch
     }
 
     # End Logging Message.
-    if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "---SCRIPT END---"}
+    if ($config.Logging.Enabled)
+    {
+        Write-PSFMessage -Level Important -Message "---SCRIPT END---"
+        Wait-PSFMessage # Make Sure Logging Is Flushed Before Terminating
+    }
 }
