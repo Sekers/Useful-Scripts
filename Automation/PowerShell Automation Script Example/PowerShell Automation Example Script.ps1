@@ -253,6 +253,7 @@ try
 
     # End Logging Message
     Write-PSFMessage -Level Important -Message "---SCRIPT END---"
+    Wait-PSFMessage # Make Sure Logging Is Flushed Before Terminating
 }
 catch
 {
@@ -287,4 +288,5 @@ catch
 
     # End Logging Message
     Write-PSFMessage -Level Important -Message "---SCRIPT END---"
+    Wait-PSFMessage # Make Sure Logging Is Flushed Before Terminating
 }
