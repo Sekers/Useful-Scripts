@@ -61,6 +61,7 @@ $paramSetPSFLoggingProvider = @{
     FileType         = $config.Logging.FileType
     LogRotatePath    = $ExecutionContext.InvokeCommand.ExpandString($config.Logging.LogRotatePath)
     LogRetentionTime = $config.Logging.LogRetentionTime
+    Wait             = $config.Logging.Wait
     Enabled          = $config.Logging.Enabled
 }
 
