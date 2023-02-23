@@ -319,7 +319,19 @@ try
                     $Parameters = @{ }
                     $Parameters.Add('Values',$values)
 
-                    [array]$AddTeamMemberResult = Add-MgTeamMember -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
+                    try
+                    {
+                        [array]$AddTeamMemberResult = Add-MgTeamMember -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
+                    }
+                    catch
+                    {
+                        if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unabled to be added (disabled account, etc.). Error Message: $_"}
+                        # Set Email Warning Message.
+                        $CustomWarningMessage += "`nWARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unabled to be added (disabled account, etc.). Error Message: $_"
+    
+                        # Skip to the next Team group mapping.
+                        continue
+                    }
                     
                     foreach ($result in $AddTeamMemberResult)
                     {
