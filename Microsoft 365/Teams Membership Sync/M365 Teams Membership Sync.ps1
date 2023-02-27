@@ -40,7 +40,7 @@ $config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | Convert
 $GroupTeamMapping = Get-Content -Path "$PSScriptRoot\Config\config_group_team_mapping.json" | ConvertFrom-Json
 
 # Import User Removal Exclusions.
-$MemberRemmovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove_account_exclusions.json" | ConvertFrom-Json
+$MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove_account_exclusions.json" | ConvertFrom-Json
 
 # Set General Properties and Verify Type.
 [string]$ScriptName = $config.General.ScriptName
@@ -351,7 +351,7 @@ try
             foreach ($teamMember in $CurrentTeamMembers)
             {
                 # Skip excluded accounts indicated by config and skip to the next Team member.
-                if ($MemberRemmovalExclusions.Id -contains $teamMember.AdditionalProperties.userId)
+                if ($MemberRemovalExclusions.Id -contains $teamMember.AdditionalProperties.userId)
                 {
                     continue
                 }
@@ -464,7 +464,7 @@ try
             foreach ($channelMember in $CurrentChannelMembers)
             {
                 # Skip excluded accounts indicated by config and skip to the next Channel member.
-                if ($MemberRemmovalExclusions.Id -contains $channelMember.AdditionalProperties.userId)
+                if ($MemberRemovalExclusions.Id -contains $channelMember.AdditionalProperties.userId)
                 {
                     continue
                 }
