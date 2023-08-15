@@ -6,6 +6,7 @@
         "EnableGroupRecursion": true,
         "RemoveExtraTeamMembers": false,
         "RemoveExtraChannelMembers": false,
+        "RemoveExtraGroupMembers": false,
         "MgProfile": "v1.0",
         "MgPermissionType": "Application",
         "MgDisconnectWhenDone": true,

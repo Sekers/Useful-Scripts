@@ -49,6 +49,7 @@ $MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove
 [bool]$EnableGroupRecursion = $config.General.EnableGroupRecursion
 [bool]$RemoveExtraTeamMembers = $config.General.RemoveExtraTeamMembers
 [bool]$RemoveExtraChannelMembers = $config.General.RemoveExtraChannelMembers
+[bool]$RemoveExtraGroupMembers = $config.General.RemoveExtraGroupMembers
 [string]$MgProfile = $config.General.MgProfile # 'beta' or 'v1.0'.
 [bool]$MgDisconnectWhenDone = $config.General.MgDisconnectWhenDone # Recommended when using the Application permisison type.
 [string]$MgPermissionType = $config.General.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
@@ -179,6 +180,7 @@ try
         'Group.Read.All'
         'TeamMember.ReadWrite.All'
         'ChannelMember.ReadWrite.All'
+        'GroupMember.ReadWrite.All'
     )
     
     if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Graph Permission Type: $MgPermissionType"}
@@ -251,6 +253,10 @@ try
 
     # Set Microsoft.Graph profile to use.
     Select-MgProfile -Name $MgProfile
+
+    #################
+    # PROCESS TEAMS #
+    #################
 
     # Loop through the Groups mapping array and process TEAMS.
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Team"))
@@ -325,9 +331,9 @@ try
                     }
                     catch
                     {
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unabled to be added (disabled account, etc.). Error Message: $_"}
+                        if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unable to be added (disabled account, etc.). Error Message: $_"}
                         # Set Email Warning Message.
-                        $CustomWarningMessage += "`nWARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unabled to be added (disabled account, etc.). Error Message: $_"
+                        $CustomWarningMessage += "`nWARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unable to be added (disabled account, etc.). Error Message: $_"
     
                         # Skip to the next Team group mapping.
                         continue
@@ -364,6 +370,10 @@ try
             }
         }
     }
+
+    ####################
+    # PROCESS CHANNELS #
+    ####################
 
     # Loop through the Groups mapping array and process CHANNELS.
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Channel"))
@@ -473,6 +483,136 @@ try
                 {
                     if ($config.Logging.Enabled) {Write-PSFMessage -Message "Removing member from Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`': $($channelMember.DisplayName)"}
                     Remove-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -ConversationMemberId $channelMember.Id
+                }
+            }
+        }
+    }
+
+    ##################
+    # PROCESS GROUPS #
+    ##################
+
+    # Loop through the Groups mapping array and process M365 GROUPS.
+    foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Group"))
+    {
+        # Log debug info, if enabled.
+        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Processing Group Members for Group: $($mapping.M365_Group_DisplayName)"}
+        
+        # Get group membership.
+        # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
+        $Members = [System.Collections.ArrayList]::new()
+        foreach ($mapGroup in $mapping.Groups)
+        {        
+            if ($EnableGroupRecursion)
+            {
+                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All| Select-Object *
+            }
+            else
+            {
+                $ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+            }
+
+            foreach ($listItemToAdd in $ListItemsToAdd)
+            {
+                # Add if not already in the list.
+                if ($Members.Id -notcontains $listItemToAdd.Id)
+                {
+                    [void]$Members.Add($ListItemToAdd)
+                }
+            }
+        }
+
+        [array]$Users = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.user'}
+        [array]$Groups = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.group'}
+        
+        # Get current Group members.
+        [array]$CurrentGroupMembers = Get-MgGroupMember -GroupId $mapping.M365_Group_ID -All
+
+        # Log debug info, if enabled.
+        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
+        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
+        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Group Members (Email): $($CurrentGroupMembers.AdditionalProperties.mail -join ', ')"}
+
+        # Add users if there is at least one user from in the groups.
+        if ($Users.Count -ge 1)
+        {
+            # Add Group members by creating values array for the $Parameters hashtable.
+            # More info: https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0&tabs=powershell
+            
+            [array]$NewMembers = foreach ($user in $Users)
+            {
+                # Only add users if they aren't already members.
+                if ($CurrentGroupMembers.Id -notcontains $user.Id)
+                {
+                    $NewMember = [PSCustomObject]@{
+                        DisplayName = $user.AdditionalProperties.displayName
+                        UserID      = $user.Id
+                        Value       = "https://graph.microsoft.com/$MgProfile/directoryObjects/$($user.Id)"
+                    }
+
+                    $NewMember
+                } 
+            }
+
+            # Only try to add if at least one NEW member.
+            [array]$values = $NewMembers.Value
+            if ($values.count -ge 1)
+            {
+                if ($config.Logging.Enabled) {Write-PSFMessage -Message "Adding members for Group: $($mapping.M365_Group_DisplayName)"}
+                    try
+                    {
+                        # Can only batch add a max of 20 users at a time
+                        $MaxChunkSize = 20
+                        $ChunksOfValues = @()
+                        for ($i = 0; $i -lt $values.Count; $i+= $MaxChunkSize)
+                        {
+                            $ChunksOfValues += ,$values[$i..($i+$MaxChunkSize-1)]
+                        }
+
+                        foreach ($chunkOfValues in $ChunksOfValues)
+                        {
+                            $Parameters = @{ }
+                            $Parameters.Add('members@odata.bind',$chunkOfValues)
+                            Update-MgGroup -GroupId $mapping.M365_Group_ID -BodyParameter $Parameters
+                        }
+                    }
+                    catch
+                    {
+                        if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because at least one user in the request is unable to be added. Error Message: $_"}
+                        # Set Email Warning Message.
+                        $CustomWarningMessage += "`nWARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because at least one user in the request is unable to be added. Error Message: $_"
+    
+                        # Skip to the next Group:group mapping.
+                        continue
+                    }
+                    
+                    foreach ($newMember in $NewMembers)
+                    {
+                        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Added member: $($newMember.DisplayName) {$($NewMember.UserID )}"}
+                    }
+            }
+        }
+        else
+        {
+            if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Group `'$($mapping.M365_Group_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
+        }
+
+        # Remove Group members, if enabled in config.
+        if ($RemoveExtraGroupMembers)
+        {
+            foreach ($CurrentGroupMember in $CurrentGroupMembers)
+            {
+                # Skip excluded accounts indicated by config and skip to the next Group member.
+                if ($MemberRemovalExclusions.Id -contains $CurrentGroupMember.Id)
+                {
+                    continue
+                }
+
+                if ($Users.Id -notcontains $CurrentGroupMember.Id)
+                {
+                    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Removing member from Group `'$($mapping.M365_Group_DisplayName)`': $($CurrentGroupMember.AdditionalProperties.displayName)"}
+                    # TODO TEST JLANTERN REMOVAL
+                    Remove-MgGroupMemberByRef -GroupId $mapping.M365_Group_ID -DirectoryObjectId $CurrentGroupMember.Id
                 }
             }
         }

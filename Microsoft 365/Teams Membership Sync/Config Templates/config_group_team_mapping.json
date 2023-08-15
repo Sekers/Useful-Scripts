@@ -44,5 +44,17 @@
         "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
       }
     ]
+  },
+  {
+    "MapType": "Group",
+    "M365_Group_DisplayName": "Staff (M365 Group)",
+    "M365_Group_ID": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "Groups":
+    [
+      {
+        "M365_Group_DisplayName": "Staff (Security Group)",
+        "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      }
+    ]
   }
 ]
