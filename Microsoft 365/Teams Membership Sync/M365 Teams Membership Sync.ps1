@@ -492,6 +492,10 @@ try
     # PROCESS GROUPS #
     ##################
 
+    # Note: Only Unified (M365) groups and non-mail-enabled security groups can be updated by the Graph API.
+    # Mail-enabled security groups and distribution lists are not supported.
+    # More information: https://learn.microsoft.com/en-us/graph/api/resources/groups-overview?view=graph-rest-1.0&tabs=http#group-types-in-azure-ad-and-microsoft-graph
+
     # Loop through the Groups mapping array and process M365 GROUPS.
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Group"))
     {
@@ -611,7 +615,6 @@ try
                 if ($Users.Id -notcontains $CurrentGroupMember.Id)
                 {
                     if ($config.Logging.Enabled) {Write-PSFMessage -Message "Removing member from Group `'$($mapping.M365_Group_DisplayName)`': $($CurrentGroupMember.AdditionalProperties.displayName)"}
-                    # TODO TEST JLANTERN REMOVAL
                     Remove-MgGroupMemberByRef -GroupId $mapping.M365_Group_ID -DirectoryObjectId $CurrentGroupMember.Id
                 }
             }
