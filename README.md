@@ -15,6 +15,8 @@ A collection of useful scripts.
 ### Microsoft 365
 - **[M365 Teams Membership Sync:](/Microsoft%20365/Teams%20Membership%20Sync)** A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M365 Team & Team Channel groups. This script can be used to dynamically update Team and Team Channel members from groups. This is useful if you do not have the licensing necessary for [dynamic membership rules for Azure AD groups](https://learn.microsoft.com/en-us/azure/active-directory/enterprise-users/groups-dynamic-membership). It also has the added benefit of logging + email alerts and optionally skipping the removing of members who no longer are in the mapped group(s), allowing them to remain members of Teams and Channels they have previously been added to.
 
+- **[M365 Exchange Online - Update Outlook Calendar Working Hours Time Zone:]()** A PowerShell script that updates the working hours time zone for Exchange Online Outlook calendars. This affects the availability (free/busy) time zone when scheduling meetings and events and can become out of sync with the user mailbox regional time zone setting.
+
 ### Password Tools
 - **[New-EncryptedPassword:](/Password%20Tools/New-EncryptedPassword)** A PowerShell script that accepts credentials and then returns the password as an encrypted standard string. Unlike a secure string, an encrypted standard string can be saved in a file for later use. The encrypted standard string can be converted back to its secure string format by using the ConvertTo-SecureString cmdlet (the password can only be decrypted by the same account on the same computer it was encrypted from).
 
