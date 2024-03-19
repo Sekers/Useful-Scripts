@@ -3,7 +3,7 @@
 ############
 
 # This script checks all Exchange Online user mailboxes and sets the Outlook calendar working hours time zone to the desired time zone.
-# Note: This time zone setting is different that the mailbox regional configuration time zone.
+# Note: The 'working hours' time zone setting is different than the mailbox regional configuration time zone.
 
 # Requires EXO Module > https://www.powershellgallery.com/packages/ExchangeOnlineManagement/
 # More Info: https://docs.microsoft.com/en-us/powershell/module/exchange/?view=exchange-ps
