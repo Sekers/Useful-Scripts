@@ -54,8 +54,8 @@ $MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove
 [string]$MgProfile = $config.General.MgProfile # 'beta' or 'v1.0'.
 [bool]$MgDisconnectWhenDone = $config.General.MgDisconnectWhenDone # Recommended when using the Application permisison type.
 [string]$MgPermissionType = $config.General.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
-[string]$MgApp_ClientID = $config.General.MgApp_ClientID
-[string]$MgApp_TenantID = $config.General.MgApp_TenantID
+[string]$MgClientID = $config.General.MgClientID
+[string]$MgTenantID = $config.General.MgTenantID
 [bool]$SupportExchangeGroups = $config.General.SupportExchangeGroups
 [bool]$EXODisconnectWhenDone = $config.General.EXODisconnectWhenDone # Recommended when using the Application permisison type.
 [string]$EXOPermissionType = $config.General.EXOPermissionType
@@ -228,7 +228,7 @@ try
     switch ($MgPermissionType)
     {
         Delegated {
-            $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID
+            $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes -TenantId $MgTenantID -ClientId $MgClientID
         }
         Application {
             [string]$MgApp_AuthenticationType = $config.General.MgApp_AuthenticationType
@@ -259,26 +259,26 @@ try
                         }
                     }
 
-                    $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -Certificate $MgApp_Certificate
+                    $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -Certificate $MgApp_Certificate
                 }
                 CertificateName {
                     $MgApp_CertificateName = $config.General.MgApp_CertificateName
-                    $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -CertificateName $MgApp_CertificateName
+                    $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateName $MgApp_CertificateName
                 }
                 CertificateThumbprint {
                     $MgApp_CertificateThumbprint = $config.General.MgApp_CertificateThumbprint
-                    $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -CertificateThumbprint $MgApp_CertificateThumbprint
+                    $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateThumbprint $MgApp_CertificateThumbprint
                 }
                 ClientSecret {
                     $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
                     $Body =  @{
                         Grant_Type    = "client_credentials"
                         Scope         = "https://graph.microsoft.com/.default"
-                        Client_Id     = $MgApp_ClientID
+                        Client_Id     = $MgClientID
                         Client_Secret = $MgApp_Secret
                     }
                     $Connection = Invoke-RestMethod `
-                        -Uri https://login.microsoftonline.com/$MgApp_TenantID/oauth2/v2.0/token `
+                        -Uri https://login.microsoftonline.com/$MgTenantID/oauth2/v2.0/token `
                         -Method POST `
                         -Body $Body
                     $AccessToken = $Connection.access_token
@@ -330,11 +330,11 @@ try
                             }
                         }
 
-                        $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -Certificate $MgApp_Certificate
+                        $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -Certificate $MgApp_Certificate
                     }
                     CertificateName {#TODO
                         $MgApp_CertificateName = $config.General.MgApp_CertificateName
-                        $null = Connect-MgGraph -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID -CertificateName $MgApp_CertificateName
+                        $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateName $MgApp_CertificateName
                     }
                     CertificateThumbprint {
                         $EXOApp_CertificateThumbprint = $config.General.EXOApp_CertificateThumbprint
@@ -345,11 +345,11 @@ try
                         $Body =  @{
                             Grant_Type    = "client_credentials"
                             Scope         = "https://graph.microsoft.com/.default"
-                            Client_Id     = $MgApp_ClientID
+                            Client_Id     = $MgClientID
                             Client_Secret = $MgApp_Secret
                         }
                         $Connection = Invoke-RestMethod `
-                            -Uri https://login.microsoftonline.com/$MgApp_TenantID/oauth2/v2.0/token `
+                            -Uri https://login.microsoftonline.com/$MgTenantID/oauth2/v2.0/token `
                             -Method POST `
                             -Body $Body
                         $AccessToken = $Connection.access_token
