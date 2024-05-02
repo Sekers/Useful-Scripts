@@ -54,6 +54,8 @@ $MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove
 [string]$MgProfile = $config.General.MgProfile # 'beta' or 'v1.0'.
 [bool]$MgDisconnectWhenDone = $config.General.MgDisconnectWhenDone # Recommended when using the Application permisison type.
 [string]$MgPermissionType = $config.General.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
+[string]$MgApp_ClientID = $config.General.MgApp_ClientID
+[string]$MgApp_TenantID = $config.General.MgApp_TenantID
 [bool]$SupportExchangeGroups = $config.General.SupportExchangeGroups
 [bool]$EXODisconnectWhenDone = $config.General.EXODisconnectWhenDone # Recommended when using the Application permisison type.
 [string]$EXOPermissionType = $config.General.EXOPermissionType
@@ -226,11 +228,9 @@ try
     switch ($MgPermissionType)
     {
         Delegated {
-            $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes
+            $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes -TenantId $MgApp_TenantID -ClientId $MgApp_ClientID
         }
         Application {
-            [string]$MgApp_ClientID = $config.General.MgApp_ClientID
-            [string]$MgApp_TenantID = $config.General.MgApp_TenantID
             [string]$MgApp_AuthenticationType = $config.General.MgApp_AuthenticationType
             if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Graph App Authentication Type: $MgApp_AuthenticationType"}
 
