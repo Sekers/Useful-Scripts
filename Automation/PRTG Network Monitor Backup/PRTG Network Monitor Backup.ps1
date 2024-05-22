@@ -1,5 +1,5 @@
 # PRTG Network Monitor Backup
-# Version 1.0.0
+# Version 1.0.1
 # A PowerShell script that will back up your PRTG environment.
 # Includes optional normal and debug logging.
 # Includes optional warning/error messaging (email, chat, etc.) support.
@@ -476,8 +476,6 @@ try
                     }
                 }
             }
-
-
         }
     }
 
@@ -555,11 +553,13 @@ try
     # Disconnect PSDrive, if Connected
     try 
     {
-        if ((Get-PSDrive -Name "$PSDrive_PRTG" -ErrorAction SilentlyContinue ).Count -gt 0)
+        if (-not ([string]::IsNullOrEmpty($PSDrive_PRTG)))
         {
-            Remove-PSDrive -Name $PSDrive_PRTG -Force -Confirm:$false
+            if ((Get-PSDrive -Name "$PSDrive_PRTG" -ErrorAction SilentlyContinue).Count -gt 0)
+            {
+                Remove-PSDrive -Name $PSDrive_PRTG -Force -Confirm:$false
+            }
         }
-        
     }
     catch
     {
@@ -676,9 +676,12 @@ catch
     # Disconnect PSDrive, if Connected
     try 
     {
-        if ((Get-PSDrive -Name "$PSDrive_PRTG" -ErrorAction SilentlyContinue ).Count -gt 0)
+        if (-not ([string]::IsNullOrEmpty($PSDrive_PRTG)))
         {
-            Remove-PSDrive -Name $PSDrive_PRTG -Force -Confirm:$false
+            if ((Get-PSDrive -Name "$PSDrive_PRTG" -ErrorAction SilentlyContinue).Count -gt 0)
+            {
+                Remove-PSDrive -Name $PSDrive_PRTG -Force -Confirm:$false
+            }
         }
     }
     catch
