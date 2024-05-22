@@ -1,4 +1,5 @@
 # PRTG Network Monitor Backup
+# Version 1.0.0
 # A PowerShell script that will back up your PRTG environment.
 # Includes optional normal and debug logging.
 # Includes optional warning/error messaging (email, chat, etc.) support.
