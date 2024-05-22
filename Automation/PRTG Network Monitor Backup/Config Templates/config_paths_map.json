@@ -1,0 +1,44 @@
+{
+    "Program": {
+        "Certificates": "cert",
+        "CustomSensors": "Custom Sensors",
+        "DeviceTemplates": "devicetemplates",
+        "Download": "download",
+        "Lookups": "lookups",
+        "MIB": "MIB",
+        "Notifications": "notifications",
+        "PRTGInstallerArchive": "PRTG Installer Archive",
+        "Python": "python",
+        "SensorSystem": "Sensor System",
+        "SNMPLibraries": "snmplibs",
+        "Themes": "themes",
+        "WebRoot": "webroot"
+    },
+    "Data": {
+        "PRTGConfiguration.dat": "PRTG Configuration.dat",
+        "PRTGConfiguration.old": "PRTG Configuration.old",
+        "ConfigurationAutoBackups": "Configuration Auto-Backups",
+        "LogDatabase": "Log Database",
+        "Logs": {
+            "AppServer": "Logs\\appserver",
+            "Core": "Logs\\core",
+            "Debug": "Logs\\debug",
+            "DesktopClient": "Logs\\desktopclient",
+            "EnterpriseConsole": "Logs\\enterpriseconsole",
+            "Probe": "Logs\\probe",
+            "ProbeAdapter": "Logs\\probeadapter",
+            "SensorDeprecation:": "Logs\\sensordeprecation",
+            "Sensors": "Logs\\sensors",
+            "ServerAdmin": "Logs\\serveradmin",
+            "WebServer": "Logs\\webserver"
+        },
+        "LogsDebug": "Logs (Debug)",
+        "LogsSensors": "Logs (Sensors)",
+        "LogsSystem": "Logs (System)",
+        "LogsWebServer": "Logs (Web Server)",
+        "MonitoringDatabase": "Monitoring Database",
+        "ReportPDFs": "Report PDFs",
+        "SystemInformationDatabase": "System Information Database",
+        "TicketDatabase": "Ticket Database"
+    }
+}

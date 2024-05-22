@@ -1,0 +1,108 @@
+{
+    "General": {
+        "ScriptName": "PRTG Network Monitor Backup",
+        "ProgramPath": "C:\\Program Files (x86)\\PRTG Network Monitor",
+        "DataPath": "C:\\ProgramData\\Paessler\\PRTG Network Monitor",
+        "MessageOnError": true,
+        "MessageOnWarning": true
+    },
+    "Backup": {
+        "DestinationPath": "\\\\BackupServer\\PRTG Network Monitor Backups",
+        "BackupsToKeep": 7,
+        "DestinationCredential_Username": "",
+        "DestinationCredential_EncryptedPassword": "",
+        "Compression": {
+            "Enabled": true,
+            "Tool": "Compress-Archive",
+            "Level": "Optimal",
+            "StageToTempFolder": true
+        },
+        "Registry": true,
+        "Program": {
+            "Certificates": true,
+            "CustomSensors": true,
+            "DeviceTemplates": true,
+            "Download": false,
+            "Lookups": true,
+            "MIB": true,
+            "Notifications": true,
+            "PRTGInstallerArchive": false,
+            "Python": false,
+            "SensorSystem": false,
+            "SNMPLibraries": true,
+            "Themes": true,
+            "WebRoot": false
+        },
+        "Data": {
+            "PRTGConfiguration.dat": true,
+            "PRTGConfiguration.old": false,
+            "ConfigurationAutoBackups": true,
+            "ConfigurationAutoBackups_ItemsToKeep": 30,
+            "LogDatabase": true,
+            "LogDatabase_ItemsToKeep": 30,
+            "Logs": {
+                "AppServer": false,
+                "Core": true,
+                "Debug": false,
+                "DesktopClient": false,
+                "EnterpriseConsole": false,
+                "Probe": false,
+                "ProbeAdapter": false,
+                "SensorDeprecation": false,
+                "Sensors": true,
+                "ServerAdmin": true,
+                "WebServer": true
+            },
+            "LogsDebug": false,
+            "LogsSensors": false,
+            "LogsSystem": false,
+            "LogsWebServer": false,
+            "MonitoringDatabase": false,
+            "MonitoringDatabase_ItemsToKeep": 30,
+            "ReportPDFs": false,
+            "SystemInformationDatabase": true,
+            "TicketDatabase": true
+        }
+    },
+    "Logging": {
+        "Name": "logfile",
+        "InstanceName": "<PRTG Network Monitor Backup>",
+        "FilePath": "$PSScriptRoot\\Logging\\PRTG Network Monitor Backup-%date%.csv",
+        "FileType": "CSV",
+        "LogRotatePath": "$PSScriptRoot\\Logging\\PRTG Network Monitor Backup-*.csv",
+        "LogRetentionTime": "30d",
+        "Wait": true,
+        "Enabled": true
+    },
+    "Messaging": {
+        "Services": [
+            "MgGraph"
+        ],
+        "Types": [
+            "Mail",
+            "Chat"
+        ],
+        "From": {
+            "Name": "PRTG Network Monitor Backup",
+            "Address": "example@domain.com"
+        },
+        "ReplyTo": [
+            {
+                "Name": "IT Technology Support",
+                "Address": "support@domain.com"
+            }
+        ],
+        "To": [
+            "alerts1@domain.com",
+            "alerts2@domain.com"
+        ],
+        "CC": [],
+        "BCC": [],
+        "SaveToSentItems": true,
+        "Sender:": ""
+    },
+    "Debugging": {
+        "VerbosePreference": "SilentlyContinue",
+        "LogDebugInfo": false
+    }
+}
