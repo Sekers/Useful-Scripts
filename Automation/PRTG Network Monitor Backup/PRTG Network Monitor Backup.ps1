@@ -15,7 +15,9 @@
 # 4. Optionally, sends warning and/org error notification messages (email, chat, etc.).
 # 5. Cleans up temporary files.
 
-# If supplied, the backup destination connection password in the configuration file should be encrypted. Use New-EncryptedPassword (https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily create an encrypted standard string of any desired password.
+# If supplied, the backup destination connection password in the configuration file should be encrypted.
+#     For testing, while not recommended, you can use an unencrypted plaintext string.
+#     Use New-EncryptedPassword (https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily create an encrypted standard string of any desired password.
 # If you leave the 'DestinationCredential_Username' configuration field empty, it will connect using the account context that the script is running under.
 
 #################
