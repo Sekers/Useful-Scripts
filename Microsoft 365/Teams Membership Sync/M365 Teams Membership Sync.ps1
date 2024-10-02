@@ -147,7 +147,6 @@ Only cmdlets for the installed modules will be available for use.
     }
 }
 
-
 # Check For Exchange Online PowerShell Module.
 if ($SupportExchangeGroups)
 {
@@ -290,10 +289,10 @@ try
         Default {throw "Invalid `'MgPermissionType`' value in the configuration file."}
     }
 
-    # Connect to the Exchange Online Graph API, if 'SupportExchangeGroups' is set to true.
+    # Connect to the Exchange Online API, if 'SupportExchangeGroups' is set to true.
     if ($SupportExchangeGroups)
     {
-        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Exchange Online Permission Type: $MgPermissionType"}
+        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Exchange Online Permission Type: $EXOPermissionType"}
         switch ($EXOPermissionType)
         {
             Delegated { #TODO
@@ -369,7 +368,7 @@ try
     # Note: Only Unified (M365) groups and non-mail-enabled security groups can be updated by the Graph API.
     # Mail-enabled security groups and distribution lists are not supported.
     # More information: https://learn.microsoft.com/en-us/graph/api/resources/groups-overview?view=graph-rest-1.0&tabs=http#group-types-in-azure-ad-and-microsoft-graph
-    # To allow for mail-enabled secuirty groups and distribution groups, we need to use the Exchange Online Powershell module.
+    # To allow for mail-enabled security groups and distribution groups, we need to use the Exchange Online Powershell module.
 
     # Loop through the Groups mapping array and process M365 GROUPS.
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Group"))
@@ -384,11 +383,11 @@ try
         {        
             if ($EnableGroupRecursion)
             {
-                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All| Select-Object *
+                [array]$ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All| Select-Object *
             }
             else
             {
-                $ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+                [array]$ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
             }
 
             foreach ($listItemToAdd in $ListItemsToAdd)
@@ -617,6 +616,8 @@ try
     #################
     # PROCESS TEAMS #
     #################
+
+    # TODO: Process Owners and not just Members.
 
     # Loop through the Groups mapping array and process TEAMS.
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Team"))
@@ -851,13 +852,13 @@ try
     # Disconnect from Microsoft Graph API, if enabled in config.
     if ($MgDisconnectWhenDone)
     {
-        $null = Disconnect-MgGraph
+        $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
     }
 
     # Disconnect from Exchange Online API, if enabled in config.
     if ($SupportExchangeGroups -and $EXODisconnectWhenDone)
     {
-        $null = Disconnect-ExchangeOnline -Confirm:$false
+        $null = Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
     }
 
     # Email Warning Message, if Enabled.
@@ -914,7 +915,6 @@ catch
     {
         $null = Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
     }
-
 
     # Try to Email Alert Message On Error.
     if ($EmailonError)
