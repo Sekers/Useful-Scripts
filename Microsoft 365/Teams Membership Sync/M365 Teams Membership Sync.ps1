@@ -44,45 +44,46 @@ $GroupTeamMapping = Get-Content -Path "$PSScriptRoot\Config\config_group_team_ma
 $MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove_account_exclusions.json" | ConvertFrom-Json
 
 # Set General Properties and Verify Type.
-[string]$ScriptName = $config.General.ScriptName
-[bool]$EmailonError = $config.General.EmailonError
-[bool]$EmailonWarning = $config.General.EmailonWarning
-[bool]$EnableGroupRecursion = $config.General.EnableGroupRecursion
-[bool]$RemoveExtraTeamMembers = $config.General.RemoveExtraTeamMembers
-[bool]$RemoveExtraChannelMembers = $config.General.RemoveExtraChannelMembers
-[bool]$RemoveExtraGroupMembers = $config.General.RemoveExtraGroupMembers
-[string]$MgProfile = $config.General.MgProfile # 'beta' or 'v1.0'.
-[bool]$MgDisconnectWhenDone = $config.General.MgDisconnectWhenDone # Recommended when using the Application permisison type.
-[string]$MgPermissionType = $config.General.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
-[string]$MgClientID = $config.General.MgClientID
-[string]$MgTenantID = $config.General.MgTenantID
-[bool]$SupportExchangeGroups = $config.General.SupportExchangeGroups
-[bool]$EXODisconnectWhenDone = $config.General.EXODisconnectWhenDone # Recommended when using the Application permisison type.
-[string]$EXOPermissionType = $config.General.EXOPermissionType
+[string]$ScriptName = $Config.General.ScriptName
+[bool]$EmailonError = $Config.General.EmailonError
+[bool]$EmailonWarning = $Config.General.EmailonWarning
+[bool]$EnableGroupRecursion = $Config.General.EnableGroupRecursion
+[bool]$RemoveExtraTeamMembers = $Config.General.RemoveExtraTeamMembers
+[bool]$RemoveExtraChannelMembers = $Config.General.RemoveExtraChannelMembers
+[bool]$RemoveExtraGroupMembers = $Config.General.RemoveExtraGroupMembers
+[string]$MgProfile = $Config.General.MgProfile # 'beta' or 'v1.0'.
+[bool]$MgDisconnectWhenDone = $Config.General.MgDisconnectWhenDone # Recommended when using the Application permisison type.
+[string]$MgPermissionType = $Config.General.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
+[string]$MgClientID = $Config.General.MgClientID
+[string]$MgTenantID = $Config.General.MgTenantID
+[bool]$SupportExchangeGroups = $Config.General.SupportExchangeGroups
+[bool]$EXODisconnectWhenDone = $Config.General.EXODisconnectWhenDone # Recommended when using the Application permisison type.
+[string]$EXOPermissionType = $Config.General.EXOPermissionType
 
 # Configure Logging. See https://psframework.org/documentation/documents/psframework/logging/loggingto/logfile.html.
+$LoggingEnabled = $Config.Logging.Enabled
 $paramSetPSFLoggingProvider = @{
-    Name             = $config.Logging.Name
-    InstanceName     = $config.Logging.InstanceName
-    FilePath         = $ExecutionContext.InvokeCommand.ExpandString($config.Logging.FilePath)
-    FileType         = $config.Logging.FileType
-    LogRotatePath    = $ExecutionContext.InvokeCommand.ExpandString($config.Logging.LogRotatePath)
-    LogRetentionTime = $config.Logging.LogRetentionTime
-    Wait             = $config.Logging.Wait
-    Enabled          = $config.Logging.Enabled
+    Name             = $Config.Logging.Name
+    InstanceName     = $Config.Logging.InstanceName
+    FilePath         = $ExecutionContext.InvokeCommand.ExpandString($Config.Logging.FilePath)
+    FileType         = $Config.Logging.FileType
+    LogRotatePath    = $ExecutionContext.InvokeCommand.ExpandString($Config.Logging.LogRotatePath)
+    LogRetentionTime = $Config.Logging.LogRetentionTime
+    Wait             = $Config.Logging.Wait
+    Enabled          = $Config.Logging.Enabled
 }
 
 # Configure Email Alerts.
-if (-not [string]::IsNullOrEmpty($config.Email.Password))
+if (-not [string]::IsNullOrEmpty($Config.Email.Password))
 {
     # Try to decrypt the password in case it's stored as an encrypted standard string.
     try
     {
-        $EmailArguments_Password = [System.Net.NetworkCredential]::new("", $($config.Email.Password | ConvertTo-SecureString -ErrorAction Stop)).Password # Can only be decrypted by the same AD account on the same computer.
+        $EmailArguments_Password = [System.Net.NetworkCredential]::new("", $($Config.Email.Password | ConvertTo-SecureString -ErrorAction Stop)).Password # Can only be decrypted by the same AD account on the same computer.
     }
     catch # If it's unable to be decrypted it's probably entered in as plain text.
     {
-        $EmailArguments_Password = $config.Email.Password
+        $EmailArguments_Password = $Config.Email.Password
     }
 }
 else
@@ -90,23 +91,23 @@ else
     $EmailArguments_Password = $null
 }
 $EmailArguments = @{
-    From = $config.Email.From
-    ReplyTo = $config.Email.ReplyTo
-    To = $config.Email.To
-    Username = $config.Email.Username
+    From = $Config.Email.From
+    ReplyTo = $Config.Email.ReplyTo
+    To = $Config.Email.To
+    Username = $Config.Email.Username
     Password = $EmailArguments_Password
-    Priority = $config.Email.Priority
-    Smtpserver = $config.Email.Smtpserver
-    UseSsl = $config.Email.UseSsl
-    Port = $config.Email.Port
+    Priority = $Config.Email.Priority
+    Smtpserver = $Config.Email.Smtpserver
+    UseSsl = $Config.Email.UseSsl
+    Port = $Config.Email.Port
 }
 
 #############
 # DEBUGGING #
 #############
 
-[System.Management.Automation.ActionPreference]$VerbosePreference = $config.Debugging.VerbosePreference # Use 'Continue' to Enable Verbose Messages and Use 'SilentlyContinue' to reset back to default.
-[bool]$LogDebugInfo = $config.Debugging.LogDebugInfo # Writes Extra Information to the log if $true.
+[System.Management.Automation.ActionPreference]$VerbosePreference = $Config.Debugging.VerbosePreference # Use 'Continue' to Enable Verbose Messages and Use 'SilentlyContinue' to reset back to default.
+[bool]$LogDebugInfo = $Config.Debugging.LogDebugInfo # Writes Extra Information to the log if $true.
 
 ##################
 # Import Modules #
@@ -172,7 +173,7 @@ if ($EmailonError -or $EmailonWarning)
 }
 
 # Check For PowerShell Framework Module.
-if ($config.Logging.Enabled)
+if ($LoggingEnabled)
 {
     Import-Module PSFramework
     if (!(Get-Module -Name "PSFramework"))
@@ -191,7 +192,7 @@ if ($config.Logging.Enabled)
 $ErrorActionPreference = "Stop"
 
 # If Logging is Enabled, Set Logging Data & Log PowerShell & Module Version Information.
-if ($config.Logging.Enabled)
+if ($LoggingEnabled)
 {
     Set-PSFLoggingProvider @paramSetPSFLoggingProvider
     Write-PSFMessage -Level Important -Message "---SCRIPT BEGIN---"
@@ -223,20 +224,20 @@ try
         'GroupMember.ReadWrite.All'
     )
     
-    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Graph Permission Type: $MgPermissionType"}
+    if ($LoggingEnabled) {Write-PSFMessage -Message "Microsoft Graph Permission Type: $MgPermissionType"}
     switch ($MgPermissionType)
     {
         Delegated {
             $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes -TenantId $MgTenantID -ClientId $MgClientID
         }
         Application {
-            [string]$MgApp_AuthenticationType = $config.General.MgApp_AuthenticationType
-            if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Graph App Authentication Type: $MgApp_AuthenticationType"}
+            [string]$MgApp_AuthenticationType = $Config.General.MgApp_AuthenticationType
+            if ($LoggingEnabled) {Write-PSFMessage -Message "Microsoft Graph App Authentication Type: $MgApp_AuthenticationType"}
 
             switch ($MgApp_AuthenticationType)
             {
                 CertificateFile {
-                    $MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($config.General.MgApp_CertificatePath)
+                    $MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($Config.General.MgApp_CertificatePath)
 
                     # Try accessing private key certificate without password using current process credentials.
                     [X509Certificate]$MgApp_Certificate = $null
@@ -246,14 +247,14 @@ try
                     }
                     catch # If that doesn't work try the included credentials.
                     {
-                        if ([string]::IsNullOrEmpty($config.General.MgApp_EncryptedCertificatePassword))
+                        if ([string]::IsNullOrEmpty($Config.General.MgApp_EncryptedCertificatePassword))
                         {
-                            if ($config.Logging.Enabled) {Write-PSFMessage -Level Error "Cannot access .pfx private key certificate file and no password has been provided."}
+                            if ($LoggingEnabled) {Write-PSFMessage -Level Error "Cannot access .pfx private key certificate file and no password has been provided."}
                             throw $_
                         }
                         else
                         {
-                            [SecureString]$MgApp_EncryptedCertificateSecureString = $config.General.MgApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
+                            [SecureString]$MgApp_EncryptedCertificateSecureString = $Config.General.MgApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
                             [X509Certificate]$MgApp_Certificate = Get-PfxCertificate -FilePath $MgApp_CertificatePath -NoPromptForPassword -Password $MgApp_EncryptedCertificateSecureString
                         }
                     }
@@ -261,15 +262,15 @@ try
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -Certificate $MgApp_Certificate
                 }
                 CertificateName {
-                    $MgApp_CertificateName = $config.General.MgApp_CertificateName
+                    $MgApp_CertificateName = $Config.General.MgApp_CertificateName
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateName $MgApp_CertificateName
                 }
                 CertificateThumbprint {
-                    $MgApp_CertificateThumbprint = $config.General.MgApp_CertificateThumbprint
+                    $MgApp_CertificateThumbprint = $Config.General.MgApp_CertificateThumbprint
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateThumbprint $MgApp_CertificateThumbprint
                 }
                 ClientSecret {
-                    $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
+                    $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
                     $Body =  @{
                         Grant_Type    = "client_credentials"
                         Scope         = "https://graph.microsoft.com/.default"
@@ -292,22 +293,22 @@ try
     # Connect to the Exchange Online API, if 'SupportExchangeGroups' is set to true.
     if ($SupportExchangeGroups)
     {
-        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Exchange Online Permission Type: $EXOPermissionType"}
+        if ($LoggingEnabled) {Write-PSFMessage -Message "Microsoft Exchange Online Permission Type: $EXOPermissionType"}
         switch ($EXOPermissionType)
         {
             Delegated { #TODO
                 $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes
             }
             Application {
-                [string]$EXOApp_Organization = $config.General.EXOApp_Organization
-                [string]$EXOApp_AppID = $config.General.EXOApp_AppID
-                [string]$EXOApp_AuthenticationType = $config.General.EXOApp_AuthenticationType
-                if ($config.Logging.Enabled) {Write-PSFMessage -Message "Microsoft Exchange Online App Authentication Type: $EXOApp_AuthenticationType"}
+                [string]$EXOApp_Organization = $Config.General.EXOApp_Organization
+                [string]$EXOApp_AppID = $Config.General.EXOApp_AppID
+                [string]$EXOApp_AuthenticationType = $Config.General.EXOApp_AuthenticationType
+                if ($LoggingEnabled) {Write-PSFMessage -Message "Microsoft Exchange Online App Authentication Type: $EXOApp_AuthenticationType"}
 
                 switch ($EXOApp_AuthenticationType)
                 {
                     CertificateFile {#TODO
-                        $MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($config.General.MgApp_CertificatePath)
+                        $MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($Config.General.MgApp_CertificatePath)
 
                         # Try accessing private key certificate without password using current process credentials.
                         [X509Certificate]$MgApp_Certificate = $null
@@ -317,14 +318,14 @@ try
                         }
                         catch # If that doesn't work try the included credentials.
                         {
-                            if ([string]::IsNullOrEmpty($config.General.MgApp_EncryptedCertificatePassword))
+                            if ([string]::IsNullOrEmpty($Config.General.MgApp_EncryptedCertificatePassword))
                             {
-                                if ($config.Logging.Enabled) {Write-PSFMessage -Level Error "Cannot access .pfx private key certificate file and no password has been provided."}
+                                if ($LoggingEnabled) {Write-PSFMessage -Level Error "Cannot access .pfx private key certificate file and no password has been provided."}
                                 throw $_
                             }
                             else
                             {
-                                [SecureString]$MgApp_EncryptedCertificateSecureString = $config.General.MgApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
+                                [SecureString]$MgApp_EncryptedCertificateSecureString = $Config.General.MgApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
                                 [X509Certificate]$MgApp_Certificate = Get-PfxCertificate -FilePath $MgApp_CertificatePath -NoPromptForPassword -Password $MgApp_EncryptedCertificateSecureString
                             }
                         }
@@ -332,15 +333,15 @@ try
                         $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -Certificate $MgApp_Certificate
                     }
                     CertificateName {#TODO
-                        $MgApp_CertificateName = $config.General.MgApp_CertificateName
+                        $MgApp_CertificateName = $Config.General.MgApp_CertificateName
                         $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateName $MgApp_CertificateName
                     }
                     CertificateThumbprint {
-                        $EXOApp_CertificateThumbprint = $config.General.EXOApp_CertificateThumbprint
+                        $EXOApp_CertificateThumbprint = $Config.General.EXOApp_CertificateThumbprint
                         $null = Connect-ExchangeOnline -CertificateThumbPrint $EXOApp_CertificateThumbprint -AppID $EXOApp_AppID -Organization $EXOApp_Organization -ShowBanner:$false
                     }
                     ClientSecret {#TODO
-                        $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
+                        $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
                         $Body =  @{
                             Grant_Type    = "client_credentials"
                             Scope         = "https://graph.microsoft.com/.default"
@@ -374,7 +375,7 @@ try
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Group"))
     {
         # Log group info, if enabled.
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Processing Group Members for Group: $($mapping.M365_Group_DisplayName)"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Processing Group Members for Group: $($mapping.M365_Group_DisplayName)"}
         
         # Get group membership.
         # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
@@ -407,9 +408,9 @@ try
         [array]$CurrentGroupMembers = Get-MgGroupMember -GroupId $mapping.M365_Group_ID -All
 
         # Log debug info, if enabled.
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Group Members (Email): $($CurrentGroupMembers.AdditionalProperties.mail -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Group Members (Email): $($CurrentGroupMembers.AdditionalProperties.mail -join ', ')"}
 
         # Get the type of group.
         $GroupInfo = Get-MgGroup -GroupId $mapping.M365_Group_ID
@@ -441,7 +442,7 @@ try
                 [array]$values = $NewMembers.Value
                 if ($values.count -ge 1)
                 {
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Adding members for Group: $($mapping.M365_Group_DisplayName)"}
+                    if ($LoggingEnabled) {Write-PSFMessage -Message "Adding members for Group: $($mapping.M365_Group_DisplayName)"}
 
                     try
                     {
@@ -462,7 +463,7 @@ try
                     }
                     catch
                     {
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because at least one user in the request is unable to be added. Error Message: $_"}
+                        if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because at least one user in the request is unable to be added. Error Message: $_"}
                         # Set Email Warning Message.
                         $CustomWarningMessage += "`nWARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because at least one user in the request is unable to be added. Error Message: $_"
     
@@ -472,7 +473,7 @@ try
                     
                     foreach ($newMember in $NewMembers)
                     {
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Added member: $($newMember.DisplayName) {$($NewMember.UserID)}"}
+                        if ($LoggingEnabled) {Write-PSFMessage -Message "Added member: $($newMember.DisplayName) {$($NewMember.UserID)}"}
                     }
                 }
             }
@@ -499,7 +500,7 @@ try
                     if ($NewMembers.count -ge 1)
                     {
                         # Log the group info, if enabled.
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Adding members for Group: $($mapping.M365_Group_DisplayName)"}
+                        if ($LoggingEnabled) {Write-PSFMessage -Message "Adding members for Group: $($mapping.M365_Group_DisplayName)"}
                     
                         foreach ($newMember in $NewMembers)
                         {
@@ -508,7 +509,7 @@ try
                                 try
                                 {
                                     Add-DistributionGroupMember -Identity $mapping.M365_Group_ID -Member $newMember.Id -BypassSecurityGroupManagerCheck -Confirm:$false
-                                    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Added member: $($newMember.AdditionalProperties.displayName) {$($newMember.Id)}"}
+                                    if ($LoggingEnabled) {Write-PSFMessage -Message "Added member: $($newMember.AdditionalProperties.displayName) {$($newMember.Id)}"}
                                 }
                                 catch
                                 {
@@ -527,7 +528,7 @@ try
                 }
                 else
                 {
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the 'SupportExchangeGroups' configuration setting is not enabled."}
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the 'SupportExchangeGroups' configuration setting is not enabled."}
                     # Set Email Warning Message.
                     $CustomWarningMessage += "`nWARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the 'SupportExchangeGroups' configuration setting is not enabled."
 
@@ -537,7 +538,7 @@ try
             }
             else
             {
-                if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the group type is unknown."}
+                if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the group type is unknown."}
                 # Set Email Warning Message.
                 $CustomWarningMessage += "`nWARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the group type is unknown."
 
@@ -547,7 +548,7 @@ try
         }
         else
         {
-            if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Group `'$($mapping.M365_Group_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
+            if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Group `'$($mapping.M365_Group_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
         }
 
         # Remove Group members, if enabled in config.
@@ -563,7 +564,7 @@ try
 
                 if ($Users.Id -notcontains $CurrentGroupMember.Id)
                 {
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Removing member from Group `'$($mapping.M365_Group_DisplayName)`': $($CurrentGroupMember.AdditionalProperties.displayName)"}
+                    if ($LoggingEnabled) {Write-PSFMessage -Message "Removing member from Group `'$($mapping.M365_Group_DisplayName)`': $($CurrentGroupMember.AdditionalProperties.displayName)"}
                     
                     if (($GroupInfo.GroupTypes -contains 'Unified') -or ($GroupInfo.SecurityEnabled -eq $true -and $GroupInfo.ProxyAddresses.count -eq 0)) # If M365 group or non-mail-enabled security group. 
                     {
@@ -591,7 +592,7 @@ try
                         }
                         else
                         {
-                            if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the 'SupportExchangeGroups' configuration setting is not enabled."}
+                            if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Group `'$($mapping.M365_Group_DisplayName)`' because the 'SupportExchangeGroups' configuration setting is not enabled."}
                             # Set Email Warning Message.
                             $CustomWarningMessage += "`nWARNING: Cannot remove additional members from Group `'$($mapping.M365_Group_DisplayName)`' because the 'SupportExchangeGroups' configuration setting is not enabled."
         
@@ -601,7 +602,7 @@ try
                     }
                     else
                     {
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot remove additional members from Group `'$($mapping.M365_Group_DisplayName)`' because the group type is unknown."}
+                        if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot remove additional members from Group `'$($mapping.M365_Group_DisplayName)`' because the group type is unknown."}
                         # Set Email Warning Message.
                         $CustomWarningMessage += "`nWARNING: Cannot remove additional members from Group `'$($mapping.M365_Group_DisplayName)`' because the group type is unknown."
         
@@ -623,7 +624,7 @@ try
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Team"))
     {
         # Log debug info, if enabled.
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Processing Team Members for Team: $($mapping.M365_Team_DisplayName)"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Processing Team Members for Team: $($mapping.M365_Team_DisplayName)"}
         
         # Get group membership.
         # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
@@ -656,9 +657,9 @@ try
         [array]$CurrentTeamMembers = Get-MgTeamMember -TeamId $mapping.M365_Team_ID -All
 
         # Log debug info, if enabled.
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Team Members (Email): $($CurrentTeamMembers.AdditionalProperties.email -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Team Members (Email): $($CurrentTeamMembers.AdditionalProperties.email -join ', ')"}
 
         # Add users if there is at least one user from in the groups.
         if ($Users.Count -ge 1)
@@ -682,7 +683,7 @@ try
             # Only try to add if at least one NEW member.
             if ($values.count -ge 1)
             {
-                if ($config.Logging.Enabled) {Write-PSFMessage -Message "Adding members for Team: $($mapping.M365_Team_DisplayName)"}
+                if ($LoggingEnabled) {Write-PSFMessage -Message "Adding members for Team: $($mapping.M365_Team_DisplayName)"}
                     $Parameters = @{ }
                     $Parameters.Add('Values',$values)
 
@@ -692,7 +693,7 @@ try
                     }
                     catch
                     {
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unable to be added (disabled account, etc.). Error Message: $_"}
+                        if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unable to be added (disabled account, etc.). Error Message: $_"}
                         # Set Email Warning Message.
                         $CustomWarningMessage += "`nWARNING: Cannot add members to Team `'$($mapping.M365_Team_DisplayName)`' because at least one user in the request is unable to be added (disabled account, etc.). Error Message: $_"
     
@@ -703,13 +704,13 @@ try
                     foreach ($result in $AddTeamMemberResult)
                     {
                         $Member = $Users | Where-Object {$_.Id -EQ $result.AdditionalProperties.userId} | Select-Object -ExpandProperty AdditionalProperties
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Added member: $($Member.displayName) {$($result.AdditionalProperties.userId)}"} # Note that it returns a non-terminating "error" message of 'Microsoft.Graph.PowerShell.Models.MicrosoftGraphPublicError' even when it works. Fortunately, it usually does send a terminating error if there really is a problem.
+                        if ($LoggingEnabled) {Write-PSFMessage -Message "Added member: $($Member.displayName) {$($result.AdditionalProperties.userId)}"} # Note that it returns a non-terminating "error" message of 'Microsoft.Graph.PowerShell.Models.MicrosoftGraphPublicError' even when it works. Fortunately, it usually does send a terminating error if there really is a problem.
                     }
             }
         }
         else
         {
-            if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Team `'$($mapping.M365_Team_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
+            if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Team `'$($mapping.M365_Team_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
         }
 
         # Remove Team members, if enabled in config.
@@ -725,7 +726,7 @@ try
 
                 if ($Users.Id -notcontains $teamMember.AdditionalProperties.userId)
                 {
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Removing member from Team `'$($mapping.M365_Team_DisplayName)`': $($teamMember.DisplayName)"}
+                    if ($LoggingEnabled) {Write-PSFMessage -Message "Removing member from Team `'$($mapping.M365_Team_DisplayName)`': $($teamMember.DisplayName)"}
                     Remove-MgTeamMember -TeamId $mapping.M365_Team_ID -ConversationMemberId $teamMember.Id
                 }
             }
@@ -740,7 +741,7 @@ try
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Channel"))
     {
         # Log debug info, if enabled.
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Processing Channel Members for Channel: $($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Processing Channel Members for Channel: $($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)"}
         
         # Get group membership.
         # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
@@ -774,9 +775,9 @@ try
         [array]$CurrentChannelMembers = Get-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -All
 
         # Log debug info, if enabled.
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
-        if ($config.Logging.Enabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Channel Members (Email): $($CurrentChannelMembers.AdditionalProperties.email -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Channel Members (Email): $($CurrentChannelMembers.AdditionalProperties.email -join ', ')"}
 
         # Add users if there is at least one user from in the groups.
         if ($Users.Count -ge 1)
@@ -789,7 +790,7 @@ try
                 if ($CurrentTeamMembers.AdditionalProperties.userId -notcontains $userId)
                 {
                     $UserInfo = $Users | Where-Object -Property Id -EQ $userId #| Select-Object -ExpandProperty AdditionalProperties.userPrincipalName
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add member `'$($UserInfo.AdditionalProperties.userPrincipalName)`' {$userId} to Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' because they are not a member of the parent Team."}
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add member `'$($UserInfo.AdditionalProperties.userPrincipalName)`' {$userId} to Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' because they are not a member of the parent Team."}
                     # Set Email Warning Message.
                     $CustomWarningMessage += "`nWARNING: Cannot add member `'$($UserInfo.AdditionalProperties.userPrincipalName)`' {$userId} to Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' because they are not a member of the parent Team."
 
@@ -816,17 +817,17 @@ try
                     # but the API doesn't have the ability so they are updating the PS Graph module to remove it for now.
                     # Issue on GitHub: https://github.com/microsoftgraph/msgraph-sdk-powershell/issues/1494
 
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Adding members for Channel: $($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)"}
+                    if ($LoggingEnabled) {Write-PSFMessage -Message "Adding members for Channel: $($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)"}
                     foreach ($value in $values)
                     {
                         $AddChannelMemberResult = New-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $value
-                        if ($config.Logging.Enabled) {Write-PSFMessage -Message "Added member: $($AddChannelMemberResult.DisplayName) {$($AddChannelMemberResult.AdditionalProperties.userId)}"}
+                        if ($LoggingEnabled) {Write-PSFMessage -Message "Added member: $($AddChannelMemberResult.DisplayName) {$($AddChannelMemberResult.AdditionalProperties.userId)}"}
                     }
             }
         }
         else
         {
-            if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
+            if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
         }
 
         # Remove Channel members, if enabled in config.
@@ -842,7 +843,7 @@ try
 
                 if ($Users.Id -notcontains $channelMember.AdditionalProperties.userId)
                 {
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Message "Removing member from Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`': $($channelMember.DisplayName)"}
+                    if ($LoggingEnabled) {Write-PSFMessage -Message "Removing member from Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`': $($channelMember.DisplayName)"}
                     Remove-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -ConversationMemberId $channelMember.Id
                 }
             }
@@ -879,21 +880,21 @@ try
                 $SendEmailMessageResult = Send-EmailMessage @EmailArguments
                 if ($null -eq $SendEmailMessageResult.Error -or $SendEmailMessageResult.Error -eq "")
                 {
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "Email Alert (Script Warning): Sent successfully to $($SendEmailMessageResult.SentTo)"}
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "Email Alert (Script Warning): Sent successfully to $($SendEmailMessageResult.SentTo)"}
                 }
                 else
                 {
-                    if ($config.Logging.Enabled) {Write-PSFMessage -Level Error -Message "Email Alert (Script Warning): Unable to send: $($SendEmailMessageResult.Error)" -Tag 'Failure' -ErrorRecord $_}
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Error -Message "Email Alert (Script Warning): Unable to send: $($SendEmailMessageResult.Error)" -Tag 'Failure' -ErrorRecord $_}
                 }
         }
         catch
         {
-            if ($config.Logging.Enabled) {Write-PSFMessage -Level Error -Message "There has been an error emailing the error alert message: $_" -Tag 'Failure' -ErrorRecord $_}
+            if ($LoggingEnabled) {Write-PSFMessage -Level Error -Message "There has been an error emailing the error alert message: $_" -Tag 'Failure' -ErrorRecord $_}
         }
     } 
 
     # End Logging Message.
-    if ($config.Logging.Enabled)
+    if ($LoggingEnabled)
     {
         Write-PSFMessage -Level Important -Message "---SCRIPT END---"
         Wait-PSFMessage # Make Sure Logging Is Flushed Before Terminating
@@ -902,7 +903,7 @@ try
 catch
 {
     # Log Error Message.
-    if ($config.Logging.Enabled) {Write-PSFMessage -Level Error -Message "Error Running Script (Name: `"$($_.InvocationInfo.ScriptName)`" | Line: $($_.InvocationInfo.ScriptLineNumber))" -Tag 'Failure' -ErrorRecord $_}
+    if ($LoggingEnabled) {Write-PSFMessage -Level Error -Message "Error Running Script (Name: `"$($_.InvocationInfo.ScriptName)`" | Line: $($_.InvocationInfo.ScriptLineNumber))" -Tag 'Failure' -ErrorRecord $_}
 
     # Disconnect from Microsoft Graph API, if enabled in config.
     if ($MgDisconnectWhenDone)
@@ -930,21 +931,21 @@ catch
             $SendEmailMessageResult = Send-EmailMessage @EmailArguments
             if ($null -eq $SendEmailMessageResult.Error -or $SendEmailMessageResult.Error -eq "")
             {
-                if ($config.Logging.Enabled) {Write-PSFMessage -Level Important -Message "Email Alert (Script Error): Sent successfully to $($SendEmailMessageResult.SentTo)"}
+                if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "Email Alert (Script Error): Sent successfully to $($SendEmailMessageResult.SentTo)"}
             }
             else
             {
-                if ($config.Logging.Enabled) {Write-PSFMessage -Level Error -Message "Email Alert (Script Error): Unable to send: $($SendEmailMessageResult.Error)" -Tag 'Failure' -ErrorRecord $_}
+                if ($LoggingEnabled) {Write-PSFMessage -Level Error -Message "Email Alert (Script Error): Unable to send: $($SendEmailMessageResult.Error)" -Tag 'Failure' -ErrorRecord $_}
             }   
         }
         catch
         {
-            if ($config.Logging.Enabled) {Write-PSFMessage -Level Error -Message "There has been an error emailing the error alert message: $_" -Tag 'Failure' -ErrorRecord $_}
+            if ($LoggingEnabled) {Write-PSFMessage -Level Error -Message "There has been an error emailing the error alert message: $_" -Tag 'Failure' -ErrorRecord $_}
         }
     }
 
     # End Logging Message.
-    if ($config.Logging.Enabled)
+    if ($LoggingEnabled)
     {
         Write-PSFMessage -Level Important -Message "---SCRIPT END---"
         Wait-PSFMessage # Make Sure Logging Is Flushed Before Terminating
