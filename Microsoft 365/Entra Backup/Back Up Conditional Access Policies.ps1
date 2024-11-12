@@ -1,6 +1,6 @@
 <#
     .SYNOPSIS
-    Backs Up Conditional Access Policies
+    Backs Up Microsoft Entra Conditional Access Policies
 
     .DESCRIPTION
     Creates JSON file backups for each Conditional Access policy.
