@@ -36,6 +36,7 @@ $ReplacementFileNameCharacter = '_'
 $MaxPathLength = 260
 [int32]$MaxFileNameLength = $MaxPathLength - ($BackupPath.Length + 1) # Add 1 for the in-between backslash
 
+# Process Each Conditional Access Policy
 foreach ($cAPolicy in $CAPolicies)
 {
     # Remove Invalid Filename Characters
