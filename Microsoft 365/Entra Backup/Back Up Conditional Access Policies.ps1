@@ -3,7 +3,7 @@
     Backs Up Microsoft Entra Conditional Access
 
     .DESCRIPTION
-    Creates JSON file backups for each Conditional Access Policy, Named Location, Authnetication Context, & Authentication Strength.
+    Creates JSON file backups for each Conditional Access Policy, Named Location, Authentication Context, & Authentication Strength.
     Requires: Microsoft.Graph PowerShell Module (https://learn.microsoft.com/en-us/powershell/microsoftgraph/)
     Conditional Access Documentation: https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview
 #>
