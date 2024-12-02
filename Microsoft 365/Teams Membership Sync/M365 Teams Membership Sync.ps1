@@ -31,6 +31,13 @@
 
 # None at this time.
 
+###################
+# STOP ON ERRORS #
+###################
+
+# Stop on Errors.
+$ErrorActionPreference = "Stop"
+
 ##################################
 # SET VARIABLES FROM CONFIG FILE #
 ##################################
@@ -189,9 +196,6 @@ if ($LoggingEnabled)
 # PERFORM WORK #
 ################
 
-# Stop on Errors.
-$ErrorActionPreference = "Stop"
-
 # If Logging is Enabled, Set Logging Data & Log PowerShell & Module Version Information.
 if ($LoggingEnabled)
 {
@@ -271,19 +275,28 @@ try
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateThumbprint $MgApp_CertificateThumbprint
                 }
                 ClientSecret {
-                    $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
-                    $Body =  @{
-                        Grant_Type    = "client_credentials"
-                        Scope         = "https://graph.microsoft.com/.default"
-                        Client_Id     = $MgClientID
-                        Client_Secret = $MgApp_Secret
+                    [System.Version]$GraphAuthVersion = Get-Module -Name 'Microsoft.Graph.Authentication' | Select-Object -ExpandProperty Version
+                    if ($GraphAuthVersion -lt [System.Version]'2.0.0')
+                    {
+                        $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
+                        $Body =  @{
+                            Grant_Type    = "client_credentials"
+                            Scope         = "https://graph.microsoft.com/.default"
+                            Client_Id     = $MgClientID
+                            Client_Secret = $MgApp_Secret
+                        }
+                        $Connection = Invoke-RestMethod `
+                            -Uri https://login.microsoftonline.com/$MgTenantID/oauth2/v2.0/token `
+                            -Method POST `
+                            -Body $Body
+                        $AccessToken = $Connection.access_token | ConvertTo-SecureString -AsPlainText
+                        $null = Connect-MgGraph -AccessToken $AccessToken
                     }
-                    $Connection = Invoke-RestMethod `
-                        -Uri https://login.microsoftonline.com/$MgTenantID/oauth2/v2.0/token `
-                        -Method POST `
-                        -Body $Body
-                    $AccessToken = $Connection.access_token
-                    $null = Connect-MgGraph -AccessToken $AccessToken
+                    else # If Graph PowerShell SDK is version 2.0.0 or higher.
+                    {
+                        $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $MgClientID, $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)
+                        $null = Connect-MgGraph -TenantId $MgTenantID -ClientSecretCredential $ClientSecretCredential
+                    }
                 }
                 Default {throw "Invalid `'MgApp_AuthenticationType`' value in the configuration file."}
             }
