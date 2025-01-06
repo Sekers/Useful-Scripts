@@ -134,7 +134,7 @@ Import-Module 'Microsoft.Graph.Users'
 if (!(Get-Module -Name 'Microsoft.Graph.Groups') -or !(Get-Module -Name 'Microsoft.Graph.Teams') -or !(Get-Module -Name 'Microsoft.Graph.Users'))
 {
     # Module is not available.
-    Write-Error "Please First Install the Microsoft.Graph Module from https://www.powershellgallery.com/packages/Microsoft.Graph/ "
+    Write-Error "Please first install the Microsoft.Graph Groups, Teams & Users sub-modules https://www.powershellgallery.com/packages/Microsoft.Graph/ "
     Return
 }
 
@@ -145,7 +145,7 @@ if ($SupportExchangeGroups)
     if (!(Get-Module -Name "ExchangeOnlineManagement"))
     {
         # Module is not loaded.
-        Write-Error "Please First Install the Exchange Online PowerShell Module from https://www.powershellgallery.com/packages/ExchangeOnlineManagement/ "
+        Write-Error "Please first install the Exchange Online PowerShell module from https://www.powershellgallery.com/packages/ExchangeOnlineManagement/ "
         Return
     }
 }
@@ -157,7 +157,7 @@ if ($EmailonError -or $EmailonWarning)
     if (!(Get-Module -Name "Mailozaurr"))
     {
        # Module is not loaded.
-       Write-Error "Please First Install the Mailozaurr PowerShell Module from https://www.powershellgallery.com/packages/Mailozaurr/ "
+       Write-Error "Please first install the Mailozaurr PowerShell module from https://www.powershellgallery.com/packages/Mailozaurr/ "
        Return
     }
 }
@@ -169,7 +169,7 @@ if ($LoggingEnabled)
     if (!(Get-Module -Name "PSFramework"))
     {
     # Module is not loaded.
-    Write-Error "Please First Install the PowerShell Framework Module from https://www.powershellgallery.com/packages/PSFramework/ "
+    Write-Error "Please first install the PowerShell Framework module from https://www.powershellgallery.com/packages/PSFramework/ "
     Return
     }
 }
