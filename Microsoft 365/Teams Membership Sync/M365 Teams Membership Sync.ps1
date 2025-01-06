@@ -134,7 +134,7 @@ Import-Module 'Microsoft.Graph.Users'
 if (!(Get-Module -Name 'Microsoft.Graph.Groups') -or !(Get-Module -Name 'Microsoft.Graph.Teams') -or !(Get-Module -Name 'Microsoft.Graph.Users'))
 {
     # Module is not available.
-    Write-Error "Please first install the Microsoft.Graph Groups, Teams & Users sub-modules https://www.powershellgallery.com/packages/Microsoft.Graph/ "
+    Write-Error "Please first install the Microsoft.Graph Groups, Teams & Users sub-modules from https://www.powershellgallery.com/packages/Microsoft.Graph/ "
     Return
 }
 
