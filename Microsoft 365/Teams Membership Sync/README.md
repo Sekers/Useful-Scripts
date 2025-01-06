@@ -46,7 +46,7 @@ General
 - **EnableGroupRecursion (Boolean):** Enable group recursion to allow user lookups within nested groups. Otherwise, the script will use direct group members only.
 - **RemoveExtraTeamMembers (Boolean):** Removes Team members who are no longer in any mapped groups for that Team.
 - **RemoveExtraChannelMembers (Boolean):** Removes Channel members who are no longer in any mapped groups for that Channel.
-- **MgProfile (String):** Specifies the Microsoft Graph API profile version. Use 'beta', 'v1.0', etc.
+- **MgProfile (String):** Specifies the Microsoft Graph API profile version. Use 'v1.0', etc.
 - **MgPermissionType (String):** Set the [type of permission](https://learn.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions) you want to use to access the Microsoft Graph API.
     - **Delegated:** The delegated option will cause the script to prompt for a user to sign in. In this case, either the user or an administrator would consent to the permissions needed for the script to access the necessary permission scopes. If you disconnect from the Graph API or if the [tokens expire](https://learn.microsoft.com/nb-no/azure/active-directory/develop/active-directory-configurable-token-lifetimes), you will need to reauthenticate. Scopes needed by this script for delegated permissions are:
 

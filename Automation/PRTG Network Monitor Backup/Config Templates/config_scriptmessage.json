@@ -1,6 +1,5 @@
 {
     "MgGraph": {
-        "MgProfile": "v1.0",
         "MgPermissionType": "Application",
         "MgDisconnectWhenDone": false,
         "MgTenantID": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
