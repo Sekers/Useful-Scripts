@@ -20,7 +20,11 @@
 # PREREQUISITES #
 #################
 
-# Microsoft.Graph Module (https://learn.microsoft.com/en-us/powershell/microsoftgraph/).
+# Microsoft.Graph Module (https://learn.microsoft.com/en-us/powershell/microsoftgraph/). Sub-modules needed:
+# - Microsoft.Graph.Groups
+# - Microsoft.Graph.Teams
+# - Microsoft.Graph.Users
+# - Microsoft.Graph.Authentication (should automatically install along with any of the other Graph sub-modules as a dependency).
 # Exchange Online PowerShell Module (optional; for Exchange Online group support - https://learn.microsoft.com/en-us/powershell/exchange/exchange-online-powershell)
 # PowerShell Framework Module (optional; for modern logging - https://psframework.org/).
 # Mailozaurr PowerShell Module (optional; for modern email alerts - https://github.com/EvotecIT/Mailozaurr).
@@ -31,9 +35,9 @@
 
 # None at this time.
 
-###################
-# STOP ON ERRORS #
-###################
+##################
+# Error Handling #
+##################
 
 # Stop on Errors.
 $ErrorActionPreference = "Stop"
@@ -59,13 +63,13 @@ $MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove
 [bool]$RemoveExtraTeamMembers = $Config.General.RemoveExtraTeamMembers
 [bool]$RemoveExtraChannelMembers = $Config.General.RemoveExtraChannelMembers
 [bool]$RemoveExtraGroupMembers = $Config.General.RemoveExtraGroupMembers
-[string]$MgProfile = $Config.General.MgProfile # 'beta' or 'v1.0'.
-[bool]$MgDisconnectWhenDone = $Config.General.MgDisconnectWhenDone # Recommended when using the Application permisison type.
+[string]$MgProfile = $Config.General.MgProfile # 'v1.0'.
+[bool]$MgDisconnectWhenDone = $Config.General.MgDisconnectWhenDone # Recommended when using the Application permission type.
 [string]$MgPermissionType = $Config.General.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
 [string]$MgClientID = $Config.General.MgClientID
 [string]$MgTenantID = $Config.General.MgTenantID
 [bool]$SupportExchangeGroups = $Config.General.SupportExchangeGroups
-[bool]$EXODisconnectWhenDone = $Config.General.EXODisconnectWhenDone # Recommended when using the Application permisison type.
+[bool]$EXODisconnectWhenDone = $Config.General.EXODisconnectWhenDone # Recommended when using the Application permission type.
 [string]$EXOPermissionType = $Config.General.EXOPermissionType
 
 # Configure Logging. See https://psframework.org/documentation/documents/psframework/logging/loggingto/logfile.html.
@@ -123,37 +127,15 @@ $EmailArguments = @{
 
 # Check For Microsoft.Graph Module.
 # Don't import the entire 'Microsoft.Graph' module because of some issues with doing it that way. Only import the needed modules.
-if (-not ($MgProfile -eq 'beta'))
+Import-Module 'Microsoft.Graph.Authentication'
+Import-Module 'Microsoft.Graph.Groups'
+Import-Module 'Microsoft.Graph.Teams'
+Import-Module 'Microsoft.Graph.Users'
+if (!(Get-Module -Name 'Microsoft.Graph.Groups') -or !(Get-Module -Name 'Microsoft.Graph.Teams') -or !(Get-Module -Name 'Microsoft.Graph.Users'))
 {
-    Import-Module 'Microsoft.Graph.Authentication'
-    Import-Module 'Microsoft.Graph.Groups'
-    Import-Module 'Microsoft.Graph.Teams'
-    Import-Module 'Microsoft.Graph.Users'
-    if (!(Get-Module -Name "Microsoft.Graph.Groups"))
-    {
-        # Module is not available.
-        Write-Error "Please First Install the Microsoft.Graph Module from https://www.powershellgallery.com/packages/Microsoft.Graph/ "
-        Return
-    }
-}
-else
-{
-    Import-Module 'Microsoft.Graph.Authentication' # No beta version available for this required module.
-    Import-Module 'Microsoft.Graph.Beta.Groups'
-    Import-Module 'Microsoft.Graph.Beta.Teams'
-    Import-Module 'Microsoft.Graph.Beta.Users'
-    if (!(Get-Module -Name "Microsoft.Graph.Beta.Groups"))
-    {
-        # Module is not available.
-        Write-Error @"
-Please First Install the Microsoft.Graph Module from https://www.powershellgallery.com/packages/Microsoft.Graph.Beta"/ .
-Installing the main modules of the SDK, Microsoft.Graph and Microsoft.Graph.Beta, will install all 38 sub modules for each module.
-Consider only installing the necessary modules, including Microsoft.Graph.Authentication which is installed by default when you opt
-to install the sub modules individually. For a list of available Microsoft Graph modules, use Find-Module Microsoft.Graph*.
-Only cmdlets for the installed modules will be available for use.
-"@
-        Return
-    }
+    # Module is not available.
+    Write-Error "Please First Install the Microsoft.Graph Module from https://www.powershellgallery.com/packages/Microsoft.Graph/ "
+    Return
 }
 
 # Check For Exchange Online PowerShell Module.
