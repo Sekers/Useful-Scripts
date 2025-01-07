@@ -63,14 +63,31 @@ $MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove
 [bool]$RemoveExtraTeamMembers = $Config.General.RemoveExtraTeamMembers
 [bool]$RemoveExtraChannelMembers = $Config.General.RemoveExtraChannelMembers
 [bool]$RemoveExtraGroupMembers = $Config.General.RemoveExtraGroupMembers
-[string]$MgProfile = $Config.General.MgProfile # 'v1.0'.
-[bool]$MgDisconnectWhenDone = $Config.General.MgDisconnectWhenDone # Recommended when using the Application permission type.
-[string]$MgPermissionType = $Config.General.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
-[string]$MgClientID = $Config.General.MgClientID
-[string]$MgTenantID = $Config.General.MgTenantID
 [bool]$SupportExchangeGroups = $Config.General.SupportExchangeGroups
-[bool]$EXODisconnectWhenDone = $Config.General.EXODisconnectWhenDone # Recommended when using the Application permission type.
-[string]$EXOPermissionType = $Config.General.EXOPermissionType
+
+# Configure Exchange Online and Verify Type
+[string]$EXOPermissionType = $Config.ExchangeOnline.EXOPermissionType
+[bool]$EXODisconnectWhenDone = $Config.ExchangeOnline.EXODisconnectWhenDone # Recommended when using the Application permission type.
+[string]$EXOApp_Organization = $Config.ExchangeOnline.EXOApp_Organization
+[string]$EXOApp_AppID = $Config.ExchangeOnline.EXOApp_AppID
+[string]$EXOApp_AuthenticationType = $Config.ExchangeOnline.EXOApp_AuthenticationType
+[string]$EXOApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($Config.ExchangeOnline.EXOApp_CertificatePath)
+[string]$EXOApp_CertificateName = $Config.ExchangeOnline.EXOApp_CertificateName
+[string]$EXOApp_CertificateThumbprint = $Config.ExchangeOnline.EXOApp_CertificateThumbprint
+[string]$EXOApp_EncryptedCertificatePassword = $Config.ExchangeOnline.EXOApp_EncryptedCertificatePassword
+
+# Configure Microsoft Graph and Verify Type
+[string]$MgProfile = $Config.MSGraph.MgProfile # 'v1.0'.
+[string]$MgPermissionType = $Config.MSGraph.MgPermissionType # Delegated or Application. See: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#permission-types and https://docs.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions.
+[bool]$MgDisconnectWhenDone = $Config.MSGraph.MgDisconnectWhenDone # Recommended when using the Application permission type.
+[string]$MgClientID = $Config.MSGraph.MgClientID
+[string]$MgTenantID = $Config.MSGraph.MgTenantID
+[string]$MgApp_AuthenticationType = $Config.MSGraph.MgApp_AuthenticationType
+[string]$MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($Config.MSGraph.MgApp_CertificatePath)
+[string]$MgApp_CertificateName = $Config.MSGraph.MgApp_CertificateName
+[string]$MgApp_CertificateThumbprint = $Config.MSGraph.MgApp_CertificateThumbprint
+[string]$MgApp_EncryptedCertificatePassword = $Config.MSGraph.MgApp_EncryptedCertificatePassword
+[string]$MgApp_EncryptedSecret = $Config.MSGraph.MgApp_EncryptedSecret
 
 # Configure Logging. See https://psframework.org/documentation/documents/psframework/logging/loggingto/logfile.html.
 $LoggingEnabled = $Config.Logging.Enabled
@@ -218,13 +235,18 @@ try
             $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes -TenantId $MgTenantID -ClientId $MgClientID
         }
         Application {
-            [string]$MgApp_AuthenticationType = $Config.General.MgApp_AuthenticationType
             if ($LoggingEnabled) {Write-PSFMessage -Level Verbose -Message "Microsoft Graph App Authentication Type: $MgApp_AuthenticationType"}
 
             switch ($MgApp_AuthenticationType)
             {
                 CertificateFile {
-                    $MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($Config.General.MgApp_CertificatePath)
+                    # This is only supported using PowerShell 7.4 and later because 5.1 is missing the necessary parameters when using 'Get-PfxCertificate'.
+                    if ($PSVersionTable.PSVersion -lt [Version]'7.4')
+                    {
+                        $NewMessage = "Connecting to Microsoft Graph using a certificate file is only supported with PowerShell version 7.4 and later."
+                        Write-PSFMessage -Level Error $NewMessage
+                        throw $NewMessage
+                    }
 
                     # Try accessing private key certificate without password using current process credentials.
                     [X509Certificate]$MgApp_Certificate = $null
@@ -234,14 +256,14 @@ try
                     }
                     catch # If that doesn't work try the included credentials.
                     {
-                        if ([string]::IsNullOrEmpty($Config.General.MgApp_EncryptedCertificatePassword))
+                        if ([string]::IsNullOrEmpty($MgApp_EncryptedCertificatePassword))
                         {
                             if ($LoggingEnabled) {Write-PSFMessage -Level Error "Cannot access .pfx private key certificate file and no password has been provided."}
                             throw $_
                         }
                         else
                         {
-                            [SecureString]$MgApp_EncryptedCertificateSecureString = $Config.General.MgApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
+                            [SecureString]$MgApp_EncryptedCertificateSecureString = $MgApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
                             [X509Certificate]$MgApp_Certificate = Get-PfxCertificate -FilePath $MgApp_CertificatePath -NoPromptForPassword -Password $MgApp_EncryptedCertificateSecureString
                         }
                     }
@@ -249,18 +271,16 @@ try
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -Certificate $MgApp_Certificate
                 }
                 CertificateName {
-                    $MgApp_CertificateName = $Config.General.MgApp_CertificateName
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateName $MgApp_CertificateName
                 }
                 CertificateThumbprint {
-                    $MgApp_CertificateThumbprint = $Config.General.MgApp_CertificateThumbprint
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateThumbprint $MgApp_CertificateThumbprint
                 }
                 ClientSecret {
                     [System.Version]$GraphAuthVersion = Get-Module -Name 'Microsoft.Graph.Authentication' | Select-Object -ExpandProperty Version
                     if ($GraphAuthVersion -lt [System.Version]'2.0.0')
                     {
-                        $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
+                        $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
                         $Body =  @{
                             Grant_Type    = "client_credentials"
                             Scope         = "https://graph.microsoft.com/.default"
@@ -276,7 +296,7 @@ try
                     }
                     else # If Graph PowerShell SDK is version 2.0.0 or higher.
                     {
-                        $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $MgClientID, $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)
+                        $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $MgClientID, $($MgApp_EncryptedSecret | ConvertTo-SecureString)
                         $null = Connect-MgGraph -TenantId $MgTenantID -ClientSecretCredential $ClientSecretCredential
                     }
                 }
@@ -292,64 +312,33 @@ try
         if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "Connecting to Microsoft Exchange Online With Permission Type: $EXOPermissionType"}
         switch ($EXOPermissionType)
         {
-            Delegated { #TODO
-                $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes
+            Delegated {
+                $null = Connect-ExchangeOnline -Organization $EXOApp_Organization -ShowBanner:$false -SkipLoadingFormatData
             }
             Application {
-                [string]$EXOApp_Organization = $Config.General.EXOApp_Organization
-                [string]$EXOApp_AppID = $Config.General.EXOApp_AppID
-                [string]$EXOApp_AuthenticationType = $Config.General.EXOApp_AuthenticationType
                 if ($LoggingEnabled) {Write-PSFMessage -Level Verbose -Message "Microsoft Exchange Online App Authentication Type: $EXOApp_AuthenticationType"}
 
                 switch ($EXOApp_AuthenticationType)
                 {
-                    CertificateFile {#TODO
-                        $MgApp_CertificatePath = $ExecutionContext.InvokeCommand.ExpandString($Config.General.MgApp_CertificatePath)
-
+                    CertificateFile {
                         # Try accessing private key certificate without password using current process credentials.
-                        [X509Certificate]$MgApp_Certificate = $null
                         try
                         {
-                            [X509Certificate]$MgApp_Certificate = Get-PfxCertificate -FilePath $MgApp_CertificatePath -NoPromptForPassword
+                            $null = Connect-ExchangeOnline -CertificateFilePath $EXOApp_CertificatePath -AppID $EXOApp_AppID -Organization $EXOApp_Organization -ShowBanner:$false -SkipLoadingFormatData
                         }
                         catch # If that doesn't work try the included credentials.
                         {
-                            if ([string]::IsNullOrEmpty($Config.General.MgApp_EncryptedCertificatePassword))
-                            {
-                                if ($LoggingEnabled) {Write-PSFMessage -Level Error "Cannot access .pfx private key certificate file and no password has been provided."}
-                                throw $_
-                            }
-                            else
-                            {
-                                [SecureString]$MgApp_EncryptedCertificateSecureString = $Config.General.MgApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
-                                [X509Certificate]$MgApp_Certificate = Get-PfxCertificate -FilePath $MgApp_CertificatePath -NoPromptForPassword -Password $MgApp_EncryptedCertificateSecureString
-                            }
+                            [SecureString]$EXOApp_EncryptedCertificateSecureString = $EXOApp_EncryptedCertificatePassword | ConvertTo-SecureString # Can only be decrypted by the same AD account on the same computer.
+                            $null = Connect-ExchangeOnline -CertificateFilePath $EXOApp_CertificatePath -CertificatePassword $EXOApp_EncryptedCertificateSecureString -AppID $EXOApp_AppID -Organization $EXOApp_Organization -ShowBanner:$false -SkipLoadingFormatData
                         }
-
-                        $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -Certificate $MgApp_Certificate
                     }
-                    CertificateName {#TODO
-                        $MgApp_CertificateName = $Config.General.MgApp_CertificateName
-                        $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateName $MgApp_CertificateName
+                    CertificateName {
+                        # Search by Name and return the 1st found matching certificate.
+                        [X509Certificate]$EXOApp_Certificate = (Get-ChildItem -Path Cert:\* -Recurse | Where-Object {$_.Subject -eq $EXOApp_CertificateName})[0]
+                        $null = Connect-ExchangeOnline -CertificateThumbPrint $($EXOApp_Certificate.Thumbprint) -AppID $EXOApp_AppID -Organization $EXOApp_Organization -ShowBanner:$false -SkipLoadingFormatData
                     }
                     CertificateThumbprint {
-                        $EXOApp_CertificateThumbprint = $Config.General.EXOApp_CertificateThumbprint
-                        $null = Connect-ExchangeOnline -CertificateThumbPrint $EXOApp_CertificateThumbprint -AppID $EXOApp_AppID -Organization $EXOApp_Organization -ShowBanner:$false
-                    }
-                    ClientSecret {#TODO
-                        $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($Config.General.MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
-                        $Body =  @{
-                            Grant_Type    = "client_credentials"
-                            Scope         = "https://graph.microsoft.com/.default"
-                            Client_Id     = $MgClientID
-                            Client_Secret = $MgApp_Secret
-                        }
-                        $Connection = Invoke-RestMethod `
-                            -Uri https://login.microsoftonline.com/$MgTenantID/oauth2/v2.0/token `
-                            -Method POST `
-                            -Body $Body
-                        $AccessToken = $Connection.access_token
-                        $null = Connect-MgGraph -AccessToken $AccessToken
+                        $null = Connect-ExchangeOnline -CertificateThumbPrint $EXOApp_CertificateThumbprint -AppID $EXOApp_AppID -Organization $EXOApp_Organization -ShowBanner:$false -SkipLoadingFormatData
                     }
                     Default {throw "Invalid `'EXOApp_AuthenticationType`' value in the configuration file."}
                 }
