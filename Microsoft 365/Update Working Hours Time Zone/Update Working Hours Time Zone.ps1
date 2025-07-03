@@ -96,7 +96,7 @@ foreach ($userMailbox in $UserMailboxes)
    # Determine Time Zone to Set
    if ($DesiredTimeZone -eq 'MatchRegionalConfig')
    {
-      $MailboxRegionalTimeZone = Get-MailboxRegionalConfiguration -Identity $userMailbox | Select-Object -ExpandProperty TimeZone
+      $MailboxRegionalTimeZone = Get-MailboxRegionalConfiguration -Identity $userMailbox.Guid | Select-Object -ExpandProperty TimeZone
       if (-not [string]::IsNullOrEmpty($MailboxRegionalTimeZone))
       {
          $TimeZone = $MailboxRegionalTimeZone
@@ -114,7 +114,7 @@ foreach ($userMailbox in $UserMailboxes)
    if ($CalendarWorkingHoursTimeZone.WorkingHoursTimeZone -ne $TimeZone)
    {
       Write-Host "Attempting to set calendar working hours timezone for $($userMailbox.UserPrincipalName) to '$TimeZone' (currently set to '$($CalendarWorkingHoursTimeZone.WorkingHoursTimeZone)')" -ForegroundColor Green -BackgroundColor Black
-      Set-MailboxCalendarConfiguration -Identity $userMailbox -WorkingHoursTimeZone $TimeZone
+      Set-MailboxCalendarConfiguration -Identity $userMailbox.Guid -WorkingHoursTimeZone $TimeZone
    }
    else
    {
