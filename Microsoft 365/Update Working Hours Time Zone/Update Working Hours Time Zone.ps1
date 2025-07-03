@@ -55,7 +55,7 @@ if (-not ($BackupTimeZone -eq 'MatchRegionalConfig' -or $TimeZones.Id -contains 
 ##################
 
 # Check For EXO Module (make sure you update to the latest version >>> Update-Module -Name ExchangeOnlineManagement)
-Import-Module ExchangeOnlineManagement
+Import-Module ExchangeOnlineManagement -ErrorAction SilentlyContinue
 if (!(Get-Module -Name "ExchangeOnlineManagement"))
 {
    # Module is not loaded
