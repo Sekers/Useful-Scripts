@@ -47,7 +47,7 @@ $ErrorActionPreference = "Stop"
 ##################################
 
 # Import General Configuration Settings.
-$config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
+$Config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
 
 # Import Group Mapping.
 $GroupTeamMapping = Get-Content -Path "$PSScriptRoot\Config\config_group_team_mapping.json" | ConvertFrom-Json
@@ -144,10 +144,10 @@ $EmailArguments = @{
 
 # Check For Microsoft.Graph Module.
 # Don't import the entire 'Microsoft.Graph' module because of some issues with doing it that way. Only import the needed modules.
-Import-Module 'Microsoft.Graph.Authentication'
-Import-Module 'Microsoft.Graph.Groups'
-Import-Module 'Microsoft.Graph.Teams'
-Import-Module 'Microsoft.Graph.Users'
+Import-Module 'Microsoft.Graph.Authentication' -ErrorAction SilentlyContinue
+Import-Module 'Microsoft.Graph.Groups' -ErrorAction SilentlyContinue
+Import-Module 'Microsoft.Graph.Teams' -ErrorAction SilentlyContinue
+Import-Module 'Microsoft.Graph.Users' -ErrorAction SilentlyContinue
 if (!(Get-Module -Name 'Microsoft.Graph.Groups') -or !(Get-Module -Name 'Microsoft.Graph.Teams') -or !(Get-Module -Name 'Microsoft.Graph.Users'))
 {
     # Module is not available.
@@ -158,7 +158,7 @@ if (!(Get-Module -Name 'Microsoft.Graph.Groups') -or !(Get-Module -Name 'Microso
 # Check For Exchange Online PowerShell Module.
 if ($SupportExchangeGroups)
 {
-    Import-Module ExchangeOnlineManagement
+    Import-Module ExchangeOnlineManagement -ErrorAction SilentlyContinue
     if (!(Get-Module -Name "ExchangeOnlineManagement"))
     {
         # Module is not loaded.
@@ -170,7 +170,7 @@ if ($SupportExchangeGroups)
 # Check For Mailozaurr PowerShell Module.
 if ($EmailonError -or $EmailonWarning)
 {
-    Import-Module Mailozaurr
+    Import-Module Mailozaurr -ErrorAction SilentlyContinue
     if (!(Get-Module -Name "Mailozaurr"))
     {
        # Module is not loaded.
@@ -182,7 +182,7 @@ if ($EmailonError -or $EmailonWarning)
 # Check For PowerShell Framework Module.
 if ($LoggingEnabled)
 {
-    Import-Module PSFramework
+    Import-Module PSFramework -ErrorAction SilentlyContinue
     if (!(Get-Module -Name "PSFramework"))
     {
     # Module is not loaded.
@@ -212,26 +212,25 @@ try
     # Initialize Variables.
     $CustomWarningMessage = $null
 
-    # Connect to the Microsoft Graph API.
-    # E.g. Connect-MgGraph -Scopes "User.Read.All","Group.ReadWrite.All"
-    # You can add additional permissions by repeating the Connect-MgGraph command with the new permission scopes.
-    # View the current scopes under which the PowerShell SDK is (trying to) execute cmdlets: Get-MgContext | select -ExpandProperty Scopes
-    # List all the scopes granted on the service principal object (you cn also do it via the Azure AD UI): Get-MgServicePrincipal -Filter "appId eq '14d82eec-204b-4c2f-b7e8-296a70dab67e'" | % { Get-MgServicePrincipalOauth2PermissionGrant -ServicePrincipalId $_.Id } | fl
-    # Find Graph permission needed. More info on permissions: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent)
-    #    E.g., Find-MgGraphPermission -SearchString "Teams" -PermissionType Delegated
-    #    E.g., Find-MgGraphPermission -SearchString "Teams" -PermissionType Application
-    $MicrosoftGraphScopes = @(
-        'User.Read.All'
-        'Group.Read.All'
-        'TeamMember.ReadWrite.All'
-        'ChannelMember.ReadWrite.All'
-        'GroupMember.ReadWrite.All'
-    )
-    
+    # Connect to the Microsoft Graph API.    
     if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "Connecting to Microsoft Graph With Permission Type: $MgPermissionType"}
     switch ($MgPermissionType)
     {
         Delegated {
+            # E.g. Connect-MgGraph -Scopes "User.Read.All","Group.ReadWrite.All"
+            # You can add additional permissions by repeating the Connect-MgGraph command with the new permission scopes.
+            # View the current scopes under which the PowerShell SDK is (trying to) execute cmdlets: Get-MgContext | select -ExpandProperty Scopes
+            # List all the scopes granted on the service principal object (you cn also do it via the Azure AD UI): Get-MgServicePrincipal -Filter "appId eq '14d82eec-204b-4c2f-b7e8-296a70dab67e'" | % { Get-MgServicePrincipalOauth2PermissionGrant -ServicePrincipalId $_.Id } | fl
+            # Find Graph permission needed. More info on permissions: https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent)
+            #    E.g., Find-MgGraphPermission -SearchString "Teams" -PermissionType Delegated
+            #    E.g., Find-MgGraphPermission -SearchString "Teams" -PermissionType Application
+            $MicrosoftGraphScopes = @(
+                'User.Read.All'
+                'Group.Read.All'
+                'TeamMember.ReadWrite.All'
+                'ChannelMember.ReadWrite.All'
+                'GroupMember.ReadWrite.All'
+            )
             $null = Connect-MgGraph -Scopes $MicrosoftGraphScopes -TenantId $MgTenantID -ClientId $MgClientID
         }
         Application {
