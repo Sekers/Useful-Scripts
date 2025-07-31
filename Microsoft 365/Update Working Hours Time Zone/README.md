@@ -22,3 +22,6 @@ This script is meant to be run in attended mode by a Microsoft 365 admin who can
 - **BackupTimeZone (String):** ID of the backup time zone to set the working hours time zone to.
   - Some mailboxes may not have a regional set (it can come back $null) so it is good to set a backup time zone.
   - Tip: Get a list of available time zones >>> Get-TimeZone -ListAvailable
+- **SkipProcessedMailboxes (Boolean):** Enable this setting to record & skip updated/verified mailboxes on subsequent runs.
+  - Since each mailbox has to be checked against Graph individually, this will greatly speed up subsequent runs.
+  - If you enable this setting, make sure to configure the related ***ProcessedFilePath (String)** setting.
