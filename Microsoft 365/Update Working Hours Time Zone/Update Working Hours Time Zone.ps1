@@ -12,19 +12,27 @@
 # Set Variables #
 #################
 
-# Stop Script on Errors
-$ErrorActionPreference = 'Stop'
-
 # Indicate Desired Time Zone
 # Note: You can either set the time zone to match the mailbox regional timezone or manually specify a time zone.
 # To match the mailbox regional tz set it to 'MatchRegionalConfig' >>> $DesiredTimeZone = 'MatchRegionalConfig'
 # To Match a specific timezone >>> $DesiredTimeZone = 'Central Standard Time'
 # Tip: Get a list of available time zones >>> Get-TimeZone -ListAvailable
-$DesiredTimeZone = 'MatchRegionalConfig'
+[string]$DesiredTimeZone = 'MatchRegionalConfig'
 
 # Indicate Backup Time Zone
 # Some mailboxes may not have a regional set (it can come back $null) so it is good to set a backup time zone.
-$BackupTimeZone = 'Central Standard Time'
+[string]$BackupTimeZone = 'Central Standard Time'
+
+# Enable this setting to record & skip updated/verified mailboxes on subsequent runs. Update path if enabled.
+[bool]$SkipProcessedMailboxes = $true
+[string]$ProcessedFilePath = "$PSScriptRoot\ProcessedMailboxes.csv"
+
+#############################################
+# Make Sure Script Is Set to Stop on Errors #
+#############################################
+
+# Stop Script on Errors
+$ErrorActionPreference = 'Stop'
 
 #################
 # Begin Logging #
@@ -32,7 +40,7 @@ $BackupTimeZone = 'Central Standard Time'
 
 # Logging Start (via quick & dirty method Start-Transcript)
 $ScriptName = $MyInvocation.MyCommand.Name
-Start-Transcript -Path "$PSScriptRoot\$ScriptName - $(Get-Date -Format "yyyy-MM-dd").txt" -append
+Start-Transcript -Path "$PSScriptRoot\Transcripts\$ScriptName - $(Get-Date -Format "yyyy-MM-dd").txt" -append
 
 ######################
 # Validate Variables #
@@ -75,6 +83,19 @@ if (-not $ConnectionInfo.Count -ge 1)
 # Do Work #
 ###########
 
+# If "SkipProcessedMailboxes" is enabled, try and import the CSV.
+if ($SkipProcessedMailboxes)
+{
+   try
+   {
+      $CSVContents = Import-Csv -Path $ProcessedFilePath
+   }
+   catch
+   {
+      $CSVContents = $null
+   }
+}
+
 # Get All Mailboxes
 [array]$UserMailboxes = Get-EXOMailbox -ResultSize unlimited | Where-Object {$_.RecipientTypeDetails -eq "UserMailbox"} | Sort-Object UserPrincipalName
 
@@ -91,6 +112,23 @@ foreach ($userMailbox in $UserMailboxes)
    $CurrentMailboxIndex++
    Write-Progress -Activity 'Check & Update Calendar Working Hours Time Zone' -Status "Mailbox $CurrentMailboxIndex of $MailboxCount" -PercentComplete $(100*$CurrentMailboxIndex/$MailboxCount) -SecondsRemaining $SecondsRemaining
 
+   # If "SkipProcessedMailboxes" is enabled, check if the mailbox has already been processed. If so, skip the mailbox.
+   if ($SkipProcessedMailboxes)
+   {
+      if ($CSVContents.Guid -contains $userMailbox.Guid)
+      {
+         Write-Host "Calendar working hours time zone for '$($userMailbox.UserPrincipalName)' has already been processed."
+
+         # Estimate Time Remaining
+         $SecondsElapsed = (Get-Date) - $StartDateTime
+         $SecondsRemaining = ($SecondsElapsed.TotalSeconds / $CurrentMailboxIndex) * ($MailboxCount - $CurrentMailboxIndex)
+
+         # Skip to Next Mailbox Record
+         continue
+      }
+   }
+
+   # Get Current Mailbox Calendar Working Hours Time Zone
    $CalendarWorkingHoursTimeZone = $userMailbox | Get-MailboxCalendarConfiguration | Select-Object Identity, WorkingHoursTimeZone
 
    # Determine Time Zone to Set
@@ -113,17 +151,53 @@ foreach ($userMailbox in $UserMailboxes)
 
    if ($CalendarWorkingHoursTimeZone.WorkingHoursTimeZone -ne $TimeZone)
    {
-      Write-Host "Attempting to set calendar working hours timezone for $($userMailbox.UserPrincipalName) to '$TimeZone' (currently set to '$($CalendarWorkingHoursTimeZone.WorkingHoursTimeZone)')" -ForegroundColor Green -BackgroundColor Black
+      Write-Host "Attempting to set calendar working hours timezone for '$($userMailbox.UserPrincipalName)' to '$TimeZone' (currently set to '$($CalendarWorkingHoursTimeZone.WorkingHoursTimeZone)')." -ForegroundColor Green -BackgroundColor Black
       Set-MailboxCalendarConfiguration -Identity $userMailbox.Guid -WorkingHoursTimeZone $TimeZone
    }
    else
    {
-      Write-Host "Calendar working hours time zone for $($userMailbox.UserPrincipalName) is already set to '$TimeZone'"
+      Write-Host "Calendar working hours time zone for '$($userMailbox.UserPrincipalName)' is already set to '$TimeZone'."
+   }
+
+   # Write to "Mailboxes Processed" File (If "SkipProcessedMailboxes" is Enabled)
+   if ($SkipProcessedMailboxes)
+   {
+      # Collect CSV Data
+      $CSV_Data = [PSCustomObject]@{
+         UserPrincipalName = $userMailbox.UserPrincipalName
+         DisplayName       = $userMailbox.DisplayName
+         Guid              = $userMailbox.Guid
+         Processed         = Get-Date -Format 'o'
+      }
+
+      # Create or Append to CSV File
+      if (-not (Test-Path -Path $ProcessedFilePath)) # CSV File Does Not Already Exist
+      {
+         if ($PSVersionTable.PSEdition.ToString() -eq 'Desktop') # Hack because Windows PowerShell 5.1 adds the Byte order mark (BOM) to the beginning of the export (which we don't want). In Windows PowerShell, any Unicode encoding, except UTF7, always creates a BOM. PowerShell (v6 and higher) defaults to utf8NoBOM for all text output.
+         {
+            $CSV_Data | ConvertTo-Csv -NoTypeInformation | Out-String | ForEach-Object {[Text.Encoding]::UTF8.GetBytes($_)} | Set-Content -Encoding Byte -Path $ProcessedFilePath
+         }
+         else # PowerShell Core Exports without the BOM
+         {
+            $CSV_Data | Export-Csv -Path $ProcessedFilePath -NoTypeInformation -Encoding UTF8
+         }
+      }
+      else # CSV File Already Exists
+      {
+         if ($PSVersionTable.PSEdition.ToString() -eq 'Desktop') # Hack because Windows PowerShell 5.1 adds the Byte order mark (BOM) to the beginning of the export (which we don't want). In Windows PowerShell, any Unicode encoding, except UTF7, always creates a BOM. PowerShell (v6 and higher) defaults to utf8NoBOM for all text output.
+         {
+            $CSV_Data | ConvertTo-Csv -NoTypeInformation | Select-Object -Skip 1 | Out-String | ForEach-Object {[Text.Encoding]::UTF8.GetBytes($_)} | Add-Content -Encoding Byte -Path $ProcessedFilePath
+         }
+         else # PowerShell Core Exports without the BOM
+         {
+            $CSV_Data | Export-Csv -Path $ProcessedFilePath -NoTypeInformation -Encoding UTF8 -Append
+         }
+      }
    }
 
    # Estimate Time Remaining
    $SecondsElapsed = (Get-Date) - $StartDateTime
-   $SecondsRemaining = ($SecondsElapsed.TotalSeconds / $CurrentMailboxIndex) * ($UserMailboxes.Count - $CurrentMailboxIndex)
+   $SecondsRemaining = ($SecondsElapsed.TotalSeconds / $CurrentMailboxIndex) * ($MailboxCount - $CurrentMailboxIndex)
 }
 
 # Write Progress Completed
