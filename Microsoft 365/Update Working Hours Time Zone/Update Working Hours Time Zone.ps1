@@ -40,7 +40,7 @@ $ErrorActionPreference = 'Stop'
 
 # Logging Start (via quick & dirty method Start-Transcript)
 $ScriptName = $MyInvocation.MyCommand.Name
-Start-Transcript -Path "$PSScriptRoot\Transcripts\$ScriptName - $(Get-Date -Format "yyyy-MM-dd").txt" -append
+Start-Transcript -Path "$PSScriptRoot\Transcripts\$ScriptName - $((Get-Date).ToUniversalTime() | Get-Date -Format "yyyy-MM-dd-HHmmss").txt" -Append
 
 ######################
 # Validate Variables #
