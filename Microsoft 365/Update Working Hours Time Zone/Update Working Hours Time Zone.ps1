@@ -1,4 +1,4 @@
-#############
+############
 # Overview #
 ############
 
@@ -7,6 +7,8 @@
 
 # Requires EXO Module > https://www.powershellgallery.com/packages/ExchangeOnlineManagement/
 # More Info: https://docs.microsoft.com/en-us/powershell/module/exchange/?view=exchange-ps
+
+# TODO: Delete transcripts after a certain time period (e.g., 30 days) to save space.
 
 #################
 # Set Variables #
@@ -201,7 +203,7 @@ foreach ($userMailbox in $UserMailboxes)
 }
 
 # Write Progress Completed
-Write-Progress -Completed
+Write-Progress -Activity 'Check & Update Calendar Working Hours Time Zone' -Completed
 
 ##################
 # Script Cleanup #
