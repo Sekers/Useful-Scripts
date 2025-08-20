@@ -50,10 +50,10 @@ $ErrorActionPreference = "Stop"
 $Config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
 
 # Import Group Mapping.
-$GroupTeamMapping = Get-Content -Path "$PSScriptRoot\Config\config_group_team_mapping.json" | ConvertFrom-Json
+[array]$GroupTeamMapping = Get-Content -Path "$PSScriptRoot\Config\config_group_team_mapping.json" | ConvertFrom-Json
 
 # Import User Removal Exclusions.
-$MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove_account_exclusions.json" | ConvertFrom-Json
+[array]$MemberRemovalExclusions = Get-Content -Path "$PSScriptRoot\Config\config_remove_account_exclusions.json" | ConvertFrom-Json
 
 # Set General Properties and Verify Type.
 [string]$ScriptName = $Config.General.ScriptName
