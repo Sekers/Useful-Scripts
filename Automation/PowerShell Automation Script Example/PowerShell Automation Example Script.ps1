@@ -25,7 +25,7 @@
 #################################
 
 # Check For Microsoft ActiveDirectory Module
-Import-Module ActiveDirectory
+Import-Module ActiveDirectory -ErrorAction SilentlyContinue
 if (!(Get-Module -Name "ActiveDirectory"))
 {
    # Module is not loaded
@@ -34,7 +34,7 @@ if (!(Get-Module -Name "ActiveDirectory"))
 }
 
 # Check For Mailozaurr PowerShell Module (make sure you install the latest version first!)
-Import-Module Mailozaurr
+Import-Module Mailozaurr -ErrorAction SilentlyContinue
 if (!(Get-Module -Name "Mailozaurr"))
 {
    # Module is not loaded
@@ -43,7 +43,7 @@ if (!(Get-Module -Name "Mailozaurr"))
 }
 
 # Check For PowerShell Framework Module (make sure you install the latest version first!)
-Import-Module PSFramework
+Import-Module PSFramework -ErrorAction SilentlyContinue
 if (!(Get-Module -Name "PSFramework"))
 {
    # Module is not loaded
@@ -72,51 +72,51 @@ function Get-ComputerNameFromParameter {
 ##################################
 
 # Import General Configuration Settings
-$config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
+$Config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | ConvertFrom-Json
 
 # Set General Properties
-[string]$ScriptName = $config.General.ScriptName
-[bool]$EmailonError = $config.General.EmailonError
-[bool]$EmailonWarning = $config.General.EmailonWarning
+[string]$ScriptName = $Config.General.ScriptName
+[bool]$EmailonError = $Config.General.EmailonError
+[bool]$EmailonWarning = $Config.General.EmailonWarning
 
 # Configure Logging (See https://psframework.org/documentation/documents/psframework/logging/loggingto/logfile.html)
 $paramSetPSFLoggingProvider = @{
-    Name             = $config.Logging.Name
-    InstanceName     = $config.Logging.InstanceName
-    FilePath         = $ExecutionContext.InvokeCommand.ExpandString($config.Logging.FilePath)
-    FileType         = $config.Logging.FileType
-    LogRotatePath    = $ExecutionContext.InvokeCommand.ExpandString($config.Logging.LogRotatePath)
-    LogRetentionTime = $config.Logging.LogRetentionTime
-    Enabled          = $config.Logging.Enabled
+    Name             = $Config.Logging.Name
+    InstanceName     = $Config.Logging.InstanceName
+    FilePath         = $ExecutionContext.InvokeCommand.ExpandString($Config.Logging.FilePath)
+    FileType         = $Config.Logging.FileType
+    LogRotatePath    = $ExecutionContext.InvokeCommand.ExpandString($Config.Logging.LogRotatePath)
+    LogRetentionTime = $Config.Logging.LogRetentionTime
+    Enabled          = $Config.Logging.Enabled
 }
 
 # Configure Email Alerts (need to decrypt the password if provided)
-if (-not [string]::IsNullOrEmpty($config.Email.EncryptedPassword))
+if (-not [string]::IsNullOrEmpty($Config.Email.EncryptedPassword))
 {
-    $EmailArguments_Password = [System.Net.NetworkCredential]::new("", $($config.Email.EncryptedPassword | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
+    $EmailArguments_Password = [System.Net.NetworkCredential]::new("", $($Config.Email.EncryptedPassword | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
 }
 else
 {
     $EmailArguments_Password = $null
 }
 $EmailArguments = @{
-    From = $config.Email.From
-    ReplyTo = $config.Email.ReplyTo
-    To = $config.Email.To
-    Username = $config.Email.Username
+    From = $Config.Email.From
+    ReplyTo = $Config.Email.ReplyTo
+    To = $Config.Email.To
+    Username = $Config.Email.Username
     Password = $EmailArguments_Password
-    Priority = $config.Email.Priority
-    Smtpserver = $config.Email.Smtpserver
-    UseSsl = $config.Email.UseSsl
-    Port = $config.Email.Port
+    Priority = $Config.Email.Priority
+    Smtpserver = $Config.Email.Smtpserver
+    UseSsl = $Config.Email.UseSsl
+    Port = $Config.Email.Port
 }
 
 #############
 # DEBUGGING #
 #############
 
-[string]$VerbosePreference = $config.Debugging.VerbosePreference # Use 'Continue' to Enable Verbose Messages and Use 'SilentlyContinue' to reset back to default.
-[bool]$LogDebugInfo = $config.Debugging.LogDebugInfo # Writes Extra Information to the log if $true
+[string]$VerbosePreference = $Config.Debugging.VerbosePreference # Use 'Continue' to Enable Verbose Messages and Use 'SilentlyContinue' to reset back to default.
+[bool]$LogDebugInfo = $Config.Debugging.LogDebugInfo # Writes Extra Information to the log if $true
 
 ################
 # PERFORM WORK #
@@ -145,14 +145,14 @@ try
     if ($null -eq $DomainCredential)
     {
         # If ADCredential_Username is empty in the config then just use the current processes's credential
-        if ([string]::IsNullOrEmpty($config.General.ADCredential_Username))
+        if ([string]::IsNullOrEmpty($Config.General.ADCredential_Username))
         {
             $DomainUserName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
             $DomainUserName = $DomainUserName.Split("\")[1]
         }
         else
         {
-            $DomainCredential = New-Object -TypeName 'System.Management.Automation.PSCredential' -ArgumentList $($config.General.ADCredential_Username), ($($config.General.ADCredential_EncryptedPassword) | ConvertTo-SecureString)
+            $DomainCredential = New-Object -TypeName 'System.Management.Automation.PSCredential' -ArgumentList $($Config.General.ADCredential_Username), ($($Config.General.ADCredential_EncryptedPassword) | ConvertTo-SecureString)
             # $CurrentUserName = ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name).Split("\")[1] # Split removes domain from username
             $DomainUserName = $null
             if ($DomainCredential.UserName -match '\\')
