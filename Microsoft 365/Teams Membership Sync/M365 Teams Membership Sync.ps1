@@ -12,7 +12,7 @@
 
 # This Script Does the Following:
 # 1. Adds and, optionally, removes users to/from Teams, Team Channels, & M365 Groups based on their M365 or Azure AD group membership.
-# 2. Updates member ownership role for current Team & Channel members, if necessary.
+# 2. Updates Team & Channel ownership role for members based on mapped owner groups or per-group owner role settings, if necessary.
 # 3. Optionally, logs information, errors, warnings, & debug data.
 # 4. Optionally, emails alert messages on errors and/or warnings.
 
@@ -612,9 +612,12 @@ try
         
         # Get group membership.
         # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
+        [array]$MembershipSourceGroups = @($mapping.Groups | Where-Object { $null -ne $_ })
+        [array]$OwnerSourceGroups = @($mapping.OwnerGroups | Where-Object { $null -ne $_ })
+        [array]$SourceGroupDisplayNames = @($MembershipSourceGroups.M365_Group_DisplayName) + @($OwnerSourceGroups.M365_Group_DisplayName)
         $Members = [System.Collections.Generic.List[Object]]::new()
         $MemberRoles = [System.Collections.Generic.List[Object]]::new()
-        foreach ($mapGroup in $mapping.Groups)
+        foreach ($mapGroup in $MembershipSourceGroups)
         {        
             if ($EnableGroupRecursion)
             {
@@ -631,13 +634,48 @@ try
                 if ($Members.Id -notcontains $listItemToAdd.Id)
                 {
                     $Members.Add($ListItemToAdd)
+                }
 
+                if (($mapGroup.Role -eq 'Owner') -and ($MemberRoles.MemberID -notcontains $ListItemToAdd.Id))
+                {
                     $MemberRole = New-Object System.Object
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamDisplayName" -Value $mapping.M365_Team_DisplayName
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamID" -Value $mapping.M365_Team_ID
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberID" -Value $ListItemToAdd.Id
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.AdditionalProperties.displayName
-                    $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value $mapGroup.Role
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value 'Owner'
+                    $MemberRoles.Add($MemberRole)
+                }
+            }
+        }
+
+        foreach ($ownerGroup in $OwnerSourceGroups)
+        {
+            if ($EnableGroupRecursion)
+            {
+                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $ownerGroup.M365_Group_ID -All| Select-Object *
+            }
+            else
+            {
+                $ListItemsToAdd = Get-MgGroupMember -GroupId $ownerGroup.M365_Group_ID -All | Select-Object *
+            }
+
+            foreach ($listItemToAdd in $ListItemsToAdd)
+            {
+                # Add if not already in the list.
+                if ($Members.Id -notcontains $listItemToAdd.Id)
+                {
+                    $Members.Add($ListItemToAdd)
+                }
+
+                if ($MemberRoles.MemberID -notcontains $ListItemToAdd.Id)
+                {
+                    $MemberRole = New-Object System.Object
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamDisplayName" -Value $mapping.M365_Team_DisplayName
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamID" -Value $mapping.M365_Team_ID
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberID" -Value $ListItemToAdd.Id
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.AdditionalProperties.displayName
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value 'Owner'
                     $MemberRoles.Add($MemberRole)
                 }
             }
@@ -652,6 +690,7 @@ try
         # Log debug info, if enabled.
         if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
         if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Owners: $($($MemberRoles | Select-Object -ExpandProperty MemberDisplayName) -join ', ')"}
         if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Team Members (Email): $($CurrentTeamMembers.AdditionalProperties.email -join ', ')"}
 
         # Add users if there is at least one user in the mapped groups.
@@ -716,16 +755,54 @@ try
         }
         else
         {
-            if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Team `'$($mapping.M365_Team_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
+            if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Team `'$($mapping.M365_Team_DisplayName)`' & group(s): $($SourceGroupDisplayNames -join ", ")"}
         }
 
+        # Refresh current Team members to include any newly-added users and owner roles.
+        [array]$CurrentTeamMembers = Get-MgTeamMember -TeamId $mapping.M365_Team_ID -All
+
         # Update Existing Team Members
-        # Remove Team members, if enabled in config.
-        # Also Add/Remove Team member Owner role, if needed.
+        # Add Team member Owner role first so that last-owner removals don't fail when another mapped member should be promoted.
+        # Then remove extra Team members, if enabled in config, and remove Team member Owner role, if needed.
         # Note: This property contains additional qualifiers only when relevant - for example, if the member has owner privileges, the roles property contains owner as one of the values.
         #       Similarly, if the member is an in-tenant guest, the roles property contains guest as one of the values.
         #       A basic member should not have any values specified in the roles property. An Out-of-tenant external member is assigned the owner role.
         #       More info > https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.teams/update-mgteammember
+
+        foreach ($currentTeamMember in $CurrentTeamMembers)
+        {
+            # Skip excluded accounts indicated by config.
+            if ($MemberRemovalExclusions.Id -contains $currentTeamMember.AdditionalProperties.userId)
+            {
+                continue
+            }
+
+            # Only promote users that are meant to remain Team members.
+            if ($Users.Id -contains $currentTeamMember.AdditionalProperties.userId)
+            {
+                $MemberIsCurrentOwner = if ($($currentTeamMember).Roles -contains 'owner') {$true} else {$false}
+                $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $($currentTeamMember.AdditionalProperties.userId)
+                $MemberShouldBeOwner = if ($($MemberMappedRoles).Role -eq 'Owner') {$true} else {$false}
+
+                if ((-not $MemberIsCurrentOwner) -and ($MemberShouldBeOwner))
+                {
+                    [array]$NewRolesValue = $currentTeamMember.Roles + 'owner'
+
+                    $Parameters = @{
+                        "@odata.type" = "#microsoft.graph.aadUserConversationMember"
+                        roles         = @(
+                            $NewRolesValue
+                        )
+                    }
+
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email)"}
+                    $UpdateTeamMemberResult = Update-MgTeamMember -ConversationMemberId $currentTeamMember.Id -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters -ErrorAction Stop
+                }
+            }
+        }
+
+        # Refresh current Team members after owner promotions so last-owner checks operate on current state.
+        [array]$CurrentTeamMembers = Get-MgTeamMember -TeamId $mapping.M365_Team_ID -All
 
         foreach ($currentTeamMember in $CurrentTeamMembers)
         {
@@ -741,7 +818,24 @@ try
                 if (($Users.Id -notcontains $currentTeamMember.AdditionalProperties.userId))
                 {
                     if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing member from Team `'$($mapping.M365_Team_DisplayName)`': $($currentTeamMember.DisplayName)"}
-                    Remove-MgTeamMember -TeamId $mapping.M365_Team_ID -ConversationMemberId $currentTeamMember.Id
+
+                    try
+                    {
+                        Remove-MgTeamMember -TeamId $mapping.M365_Team_ID -ConversationMemberId $currentTeamMember.Id -ErrorAction Stop
+                    }
+                    catch
+                    {
+                        if ($_.Exception.Message -match 'last owner')
+                        {
+                            if ($LoggingEnabled) {Write-PSFMessage -Level Warning -Message "Cannot remove member from Team `'$($mapping.M365_Team_DisplayName)`': $($currentTeamMember.DisplayName). They are currently the last owner of the Team."}
+                            $CustomWarningMessage += "`nWARNING: Cannot remove member from Team `'$($mapping.M365_Team_DisplayName)`': $($currentTeamMember.DisplayName). They are currently the last owner of the Team."
+                            continue
+                        }
+                        else
+                        {
+                            throw $_
+                        }
+                    }
 
                     # Go to next member because no need to update ownership.
                     continue
@@ -755,41 +849,39 @@ try
             # Remove Owner role, if necessary
             if (($MemberIsCurrentOwner) -and (-not $MemberShouldBeOwner))
             {
-                [array]$NewRolesValue = foreach ($currentMemberRole in $currentTeamMember.Roles)
+                [array]$NewRolesValue = @(foreach ($currentMemberRole in $currentTeamMember.Roles)
                 {
                     if ($currentMemberRole -ne 'owner')
                     {
                         $currentMemberRole
                     }
-                }
+                })
 
                 $Parameters = @{
                     "@odata.type" = "#microsoft.graph.aadUserConversationMember"
-                    roles         = @(
-                        $NewRolesValue
-                    )
+                    roles         = $NewRolesValue
                 }
 
                 if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email)"}
-                $UpdateTeamMemberResult = Update-MgTeamMember -ConversationMemberId $currentTeamMember.Id -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
-            }
 
-            # Add Owner role, if necessary
-            if ((-not $MemberIsCurrentOwner) -and ($MemberShouldBeOwner))
-            {
-                [array]$NewRolesValue = $currentTeamMember.Roles + 'owner'
-
-                $Parameters = @{
-                    "@odata.type" = "#microsoft.graph.aadUserConversationMember"
-                    roles         = @(
-                        $NewRolesValue
-                    )
+                try
+                {
+                    $UpdateTeamMemberResult = Update-MgTeamMember -ConversationMemberId $currentTeamMember.Id -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters -ErrorAction Stop
                 }
-                
-                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email)"}
-                $UpdateTeamMemberResult = Update-MgTeamMember -ConversationMemberId $currentTeamMember.Id -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
+                catch
+                {
+                    if ($_.Exception.Message -match 'last owner')
+                    {
+                        if ($LoggingEnabled) {Write-PSFMessage -Level Warning -Message "Cannot remove ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email). They are currently the last owner of the Team."}
+                        $CustomWarningMessage += "`nWARNING: Cannot remove ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email). They are currently the last owner of the Team."
+                        continue
+                    }
+                    else
+                    {
+                        throw $_
+                    }
+                }
             }
-
         }
     }
 
@@ -806,9 +898,12 @@ try
         
         # Get group membership.
         # Get recursive/transitive user membership, if enabled. Otherwise, get direct user membership only.
+        [array]$MembershipSourceGroups = @($mapping.Groups | Where-Object { $null -ne $_ })
+        [array]$OwnerSourceGroups = @($mapping.OwnerGroups | Where-Object { $null -ne $_ })
+        [array]$SourceGroupDisplayNames = @($MembershipSourceGroups.M365_Group_DisplayName) + @($OwnerSourceGroups.M365_Group_DisplayName)
         $Members = [System.Collections.Generic.List[Object]]::new()
         $MemberRoles = [System.Collections.Generic.List[Object]]::new()
-        foreach ($mapGroup in $mapping.Groups)
+        foreach ($mapGroup in $MembershipSourceGroups)
         {
             if ($EnableGroupRecursion)
             {
@@ -825,7 +920,10 @@ try
                 if ($Members.Id -notcontains $listItemToAdd.Id)
                 {
                     $Members.Add($ListItemToAdd)
+                }
 
+                if (($mapGroup.Role -eq 'Owner') -and ($MemberRoles.MemberID -notcontains $ListItemToAdd.Id))
+                {
                     $MemberRole = New-Object System.Object
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamDisplayName" -Value $mapping.M365_Team_DisplayName
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamID" -Value $mapping.M365_Team_ID
@@ -833,7 +931,41 @@ try
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "ChannelID" -Value $mapping.M365_Channel_ID
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberID" -Value $ListItemToAdd.Id
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.AdditionalProperties.displayName
-                    $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value $mapGroup.Role
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value 'Owner'
+                    $MemberRoles.Add($MemberRole)
+                }
+            }
+        }
+
+        foreach ($ownerGroup in $OwnerSourceGroups)
+        {
+            if ($EnableGroupRecursion)
+            {
+                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $ownerGroup.M365_Group_ID -All | Select-Object *
+            }
+            else
+            {
+                $ListItemsToAdd = Get-MgGroupMember -GroupId $ownerGroup.M365_Group_ID -All | Select-Object *
+            }
+
+            foreach ($listItemToAdd in $ListItemsToAdd)
+            {
+                # Add if not already in the list.
+                if ($Members.Id -notcontains $listItemToAdd.Id)
+                {
+                    $Members.Add($ListItemToAdd)
+                }
+
+                if ($MemberRoles.MemberID -notcontains $ListItemToAdd.Id)
+                {
+                    $MemberRole = New-Object System.Object
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamDisplayName" -Value $mapping.M365_Team_DisplayName
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamID" -Value $mapping.M365_Team_ID
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "ChannelDisplayName" -Value $mapping.M365_Channel_DisplayName
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "ChannelID" -Value $mapping.M365_Channel_ID
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberID" -Value $ListItemToAdd.Id
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.AdditionalProperties.displayName
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value 'Owner'
                     $MemberRoles.Add($MemberRole)
                 }
             }
@@ -849,6 +981,7 @@ try
         # Log debug info, if enabled.
         if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
         if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Owners: $($($MemberRoles | Select-Object -ExpandProperty MemberDisplayName) -join ', ')"}
         if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Channel Members (Email): $($CurrentChannelMembers.AdditionalProperties.email -join ', ')"}
 
         # Add users if there is at least one user in the mapped groups.
@@ -914,16 +1047,54 @@ try
         }
         else
         {
-            if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' & group(s): $($mapping.Groups.M365_Group_DisplayName -join ", ")"}
+            if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "No users in group mapping for Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' & group(s): $($SourceGroupDisplayNames -join ", ")"}
         }
 
+        # Refresh current Channel members to include any newly-added users and owner roles.
+        [array]$CurrentChannelMembers = Get-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -All
+
         # Update Existing Channel Members
-        # Remove Channel members, if enabled in config.
-        # Also Add/Remove Channel member Owner role, if needed.
+        # Add Channel member Owner role first so that last-owner removals don't fail when another mapped member should be promoted.
+        # Then remove Channel members, if enabled in config, and remove Channel member Owner role, if needed.
         # Note: This property contains additional qualifiers only when relevant - for example, if the member has owner privileges, the roles property contains owner as one of the values.
         #       Similarly, if the member is an in-tenant guest, the roles property contains guest as one of the values.
         #       A basic member should not have any values specified in the roles property. An Out-of-tenant external member is assigned the owner role.
         #       More info > https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.teams/update-mgteamchannelmember
+        foreach ($currentChannelMember in $CurrentChannelMembers)
+        {
+            # Skip excluded accounts indicated by config.
+            if ($MemberRemovalExclusions.Id -contains $currentChannelMember.AdditionalProperties.userId)
+            {
+                continue
+            }
+
+            # Only promote users that are meant to remain Channel members.
+            if ($Users.Id -contains $currentChannelMember.AdditionalProperties.userId)
+            {
+                $MemberIsCurrentOwner = if ($($currentChannelMember).Roles -contains 'owner') {$true} else {$false}
+                $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $($currentChannelMember.AdditionalProperties.userId)
+                $MemberShouldBeOwner = if ($($MemberMappedRoles).Role -eq 'Owner') {$true} else {$false}
+
+                if ((-not $MemberIsCurrentOwner) -and ($MemberShouldBeOwner))
+                {
+                    [array]$NewRolesValue = $currentChannelMember.Roles + 'owner'
+
+                    $Parameters = @{
+                        "@odata.type" = "#microsoft.graph.aadUserConversationMember"
+                        roles         = @(
+                            $NewRolesValue
+                        )
+                    }
+
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.AdditionalProperties.email)"}
+                    $UpdateChannelMemberResult = Update-MgTeamChannelMember -ConversationMemberId $currentChannelMember.Id -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $Parameters -ErrorAction Stop
+                }
+            }
+        }
+
+        # Refresh current Channel members after owner promotions so last-owner checks operate on current state.
+        [array]$CurrentChannelMembers = Get-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -All
+
         foreach ($currentChannelMember in $CurrentChannelMembers)
         {
             # Skip excluded accounts indicated by config.
@@ -937,7 +1108,24 @@ try
                 if ($Users.Id -notcontains $currentChannelMember.AdditionalProperties.userId)
                 {
                     if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing member from Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`': $($currentChannelMember.DisplayName)"}
-                    Remove-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -ConversationMemberId $currentChannelMember.Id
+
+                    try
+                    {
+                        Remove-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -ConversationMemberId $currentChannelMember.Id -ErrorAction Stop
+                    }
+                    catch
+                    {
+                        if ($_.Exception.Message -match 'last owner')
+                        {
+                            if ($LoggingEnabled) {Write-PSFMessage -Level Warning -Message "Cannot remove member from Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`': $($currentChannelMember.DisplayName). They are currently the last owner of the Channel."}
+                            $CustomWarningMessage += "`nWARNING: Cannot remove member from Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`': $($currentChannelMember.DisplayName). They are currently the last owner of the Channel."
+                            continue
+                        }
+                        else
+                        {
+                            throw $_
+                        }
+                    }
 
                     # Go to next member because no need to update ownership.
                     continue
@@ -951,39 +1139,38 @@ try
             # Remove Owner role, if necessary
             if (($MemberIsCurrentOwner) -and (-not $MemberShouldBeOwner))
             {
-                [array]$NewRolesValue = foreach ($currentMemberRole in $currentChannelMember.Roles)
+                [array]$NewRolesValue = @(foreach ($currentMemberRole in $currentChannelMember.Roles)
                 {
                     if ($currentMemberRole -ne 'owner')
                     {
                         $currentMemberRole
                     }
-                }
+                })
 
                 $Parameters = @{
                     "@odata.type" = "#microsoft.graph.aadUserConversationMember"
-                    roles         = @(
-                        $NewRolesValue
-                    )
+                    roles         = $NewRolesValue
                 }
 
                 if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.AdditionalProperties.email)"}
-                $UpdateChannelMemberResult = Update-MgTeamChannelMember -ConversationMemberId $currentChannelMember.Id -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $Parameters
-            }
 
-            # Add Owner role, if necessary
-            if ((-not $MemberIsCurrentOwner) -and ($MemberShouldBeOwner))
-            {
-                [array]$NewRolesValue = $currentChannelMember.Roles + 'owner'
-
-                $Parameters = @{
-                    "@odata.type" = "#microsoft.graph.aadUserConversationMember"
-                    roles         = @(
-                        $NewRolesValue
-                    )
+                try
+                {
+                    $UpdateChannelMemberResult = Update-MgTeamChannelMember -ConversationMemberId $currentChannelMember.Id -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $Parameters -ErrorAction Stop
                 }
-                
-                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.AdditionalProperties.email)"}
-                $UpdateChannelMemberResult = Update-MgTeamChannelMember -ConversationMemberId $currentChannelMember.Id -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $Parameters
+                catch
+                {
+                    if ($_.Exception.Message -match 'last owner')
+                    {
+                        if ($LoggingEnabled) {Write-PSFMessage -Level Warning -Message "Cannot remove ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.AdditionalProperties.email). They are currently the last owner of the Channel."}
+                        $CustomWarningMessage += "`nWARNING: Cannot remove ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.AdditionalProperties.email). They are currently the last owner of the Channel."
+                        continue
+                    }
+                    else
+                    {
+                        throw $_
+                    }
+                }
             }
         }
     }
