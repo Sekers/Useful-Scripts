@@ -8,7 +8,8 @@ A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M
 
 ## Features
 
-- Adds mapped group members to Teams and Channels (Private Channels only).
+- Adds mapped group members to Teams, and Channels (Private Channels only).
+- Adds mapped owner/admin groups to Teams and Channels.
 - Optionally removes members who no longer are mapped to a Team or Channel (allows for user exceptions if enabled).
 - Optionally allows for group recursion/nesting.
 - Written to take advantage of the latest Microsoft Microsoft Graph API PowerShell module.
@@ -100,16 +101,20 @@ Debugging
 
 ### **config_group_team_mapping.json**
 
-JSON file that contains an array of Teams and/or Team Channels (Private Channels only) that you want to add group members to. You should only have one entry for each Team or Channel. When mapping Private Channel memberships, you need to specify which Team the Channel belongs to.
+JSON file that contains an array of Teams, Team Channels (Private Channels only), and/or M365 Groups that you want to sync group memberships to. You should only have one entry for each Team, Channel, or Group. When mapping Private Channel memberships, you need to specify which Team the Channel belongs to.
 
-- **MapType (String):** Specify whether the included groups are being given access to a Team or a Channel. Use 'Team' or 'Channel'.
+- **MapType (String):** Specify whether the included groups are being given access to a Team, Channel, or Group. Use 'Team', 'Channel', or 'Group'.
 - **M365_Team_DisplayName (String):** Optionally, enter a name for the Team. This field is only used to more easily identify the Team when looking at the config file.
 - **M365_Team_ID (String):** Enter the Team ID. You can find it using [Get-MgTeam](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.teams/get-mgteam) or in the [Teams Admin Center](https://admin.teams.microsoft.com/teams/manage) (there it's called the 'Group ID').
 - **M365_Channel_DisplayName (String):** Only used when 'MapType' is set to 'Channel'. Optionally, enter a name for the Channel. This field is only used to more easily identify the Channel when looking at the config file.
 - **M365_Channel_ID (String):** Enter the Channel ID. You can find it using [Get-MgTeamChannel](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.teams/get-mgteamchannel) or in the [Teams Admin Center](https://admin.teams.microsoft.com/teams/manage) (you can find it when inside the channel by looking at the URL in your web browser and copying everything after '/channels/'). E.g., "19:aac3e13cd5f99827b60cdb0b6df37a3e@thread.tacv2".
-- **Groups (Array):** Array containing the following fields for *each* group. You can map zero (if you want a placeholder for a Team/Channel) or more groups to a Team or Channel.
+- **M365_Group_DisplayName (String):** Only used when 'MapType' is set to 'Group'. Optionally, enter a name for the Group. This field is only used to more easily identify the Group when looking at the config file.
+- **M365_Group_ID (String):** Only used when 'MapType' is set to 'Group'. Enter the Group ID. You can find it using [Get-MgGroup](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.groups/get-mggroup) or, for Azure AD groups only, in the [Azure AD Admin Center](https://aad.portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/Groups).
+- **Groups (Array):** Array containing the following fields for *each* member group. You can map zero (if you want a placeholder for a Team/Channel/Group) or more groups to a Team, Channel, or Group.
+- **OwnerGroups (Array):** Optional array containing the following fields for *each* owner/admin group. This is used for Team and Channel mappings only. Users from these groups are also added as members and are then assigned the owner role. You can map zero or more owner/admin groups.
     - **M365_Group_DisplayName (String):** Optionally, enter a name for the group. This field is only used to more easily identify the group when looking at the config file.
     - **M365_Group_ID (String):** Enter the group ID. You can find it using [Get-MgGroup](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.groups/get-mggroup) or, for Azure AD groups only, in the [Azure AD Admin Center](https://aad.portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/Groups).
+- **Role (String):** Optional field on a `Groups` entry. If you set this to `Owner` for a Team or Channel mapping, the script will also assign the owner role for users from that source group. `OwnerGroups` is the newer explicit alternative, but this field remains supported for backward compatibility.
 
 ---
 

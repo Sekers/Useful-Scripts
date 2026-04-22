@@ -15,6 +15,13 @@
         "M365_Group_DisplayName": "Administrative Assistants",
         "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
       }
+    ],
+    "OwnerGroups":
+    [
+      {
+        "M365_Group_DisplayName": "Administration Managers",
+        "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      }
     ]
   },
   {
@@ -29,6 +36,9 @@
       "M365_Group_DisplayName": "Business",
       "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
       }
+    ],
+    "OwnerGroups":
+    [
     ]
   },
   {
@@ -43,6 +53,9 @@
         "M365_Group_DisplayName": "Payroll Managers",
         "M365_Group_ID": "xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
       }
+    ],
+    "OwnerGroups":
+    [
     ]
   },
   {
