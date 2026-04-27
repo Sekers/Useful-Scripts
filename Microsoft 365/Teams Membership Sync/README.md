@@ -25,7 +25,7 @@ A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M
 
 - [Microsoft.Graph Module:](https://github.com/microsoftgraph/msgraph-sdk-powershell) Microsoft's Graph API PowerShell module. Required by the script.
   - **Note:** Versions of the SDK past 2.25.0 have a [known bug with Get-MgTeamChannelMember](https://github.com/microsoftgraph/msgraph-sdk-powershell/issues/3296) that has yet to be resolved in the latest version (last checked: 2.29.1). Use 2.25.0 until it has been resolved.
-- [Microsoft Exchange Online Management Module:](https://aka.ms/exov3-module) For Exchange group support. Only needed if you want to manage mail-enabled security groups and/or distribution groups.
+- [Microsoft Exchange Online Management Module:](https://aka.ms/exov3-module) For Exchange group support. Optional and only needed if you want to manage mail-enabled security groups and/or distribution groups.
   - **Note:** The Exchange Online Management PowerShell module does not play well with the Microsoft Graph SDK PowerShell module on PowerShell 7.x. If you need Exchange support, we currently recommend using PowerShell 5.1 until the two teams can resolve the conflict on newer versions of PowerShell. [Click here for more information.](https://github.com/microsoftgraph/msgraph-sdk-powershell/issues/3576)
 - [PowerShell Framework Module:](https://psframework.org/) For modern logging. Optional and only needed if using the logging functionality.
 - [Mailozaurr PowerShell Module:](https://github.com/EvotecIT/Mailozaurr) For modern email alerts. Optional and only needed if using the email alerting functionality.
