@@ -64,6 +64,7 @@ $Config = Get-Content -Path "$PSScriptRoot\Config\config_general.json" | Convert
 [bool]$RemoveExtraChannelMembers = $Config.General.RemoveExtraChannelMembers
 [bool]$RemoveExtraGroupMembers = $Config.General.RemoveExtraGroupMembers
 [bool]$SupportExchangeGroups = $Config.General.SupportExchangeGroups
+[bool]$HandleDisabledAccounts = $Config.General.HandleDisabledAccounts
 
 # Configure Exchange Online and Verify Type
 [string]$EXOPermissionType = $Config.ExchangeOnline.EXOPermissionType
@@ -102,7 +103,7 @@ $paramSetPSFLoggingProvider = @{
     Enabled          = $Config.Logging.Enabled
 }
 
-# Configure Email Alerts.
+# Configure Email Alerts. # TODO: Add support for emailing someone on access change. Can turn it on in config as a default (probably false in template) and give the option to override the default per team.
 if (-not [string]::IsNullOrEmpty($Config.Email.Password))
 {
     # Try to decrypt the password in case it's stored as an encrypted standard string.
@@ -257,8 +258,9 @@ try
                     {
                         if ([string]::IsNullOrEmpty($MgApp_EncryptedCertificatePassword))
                         {
-                            if ($LoggingEnabled) {Write-PSFMessage -Level Error "Cannot access .pfx private key certificate file and no password has been provided."}
-                            throw $_
+                            $NewMessage = "Cannot access Microsoft Graph .pfx private key certificate file and no password has been provided."
+                            if ($LoggingEnabled) {Write-PSFMessage -Level Error $NewMessage}
+                            throw $NewMessage
                         }
                         else
                         {
@@ -347,7 +349,7 @@ try
     }
 
     ##################
-    # PROCESS GROUPS # TODO: For M365 unified groups, code the ability to set ownership role for group members.
+    # PROCESS GROUPS # TODO: For M365 unified groups, code the ability to set ownership role for group members. Then make sure the current owner is in the mapping config.
     ##################
 
     # Note: Only Unified (M365) groups and non-mail-enabled security groups can be updated by the Graph API.
@@ -603,6 +605,14 @@ try
     # PROCESS TEAMS #
     #################
 
+    # Gather disabled accounts list on the tenant, if enabled in the config.
+    # This is only needed for TEAMS in the mapping config because disabled user accounts are not returned as Team members.
+    if ($HandleDisabledAccounts)
+    {
+        if ($LoggingEnabled) { Write-PSFMessage -Level Important -Message "Gathering Disabled Users" }
+        [array]$DisabledUsers = Get-MgUser -Filter "accountEnabled eq false" -All
+    }
+
     # Loop through the Groups mapping array and process TEAMS.
     if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "Beginning Processing Teams"}
     foreach ($mapping in ($GroupTeamMapping | Where-Object -Property MapType -eq "Team"))
@@ -722,11 +732,11 @@ try
         # Update Existing Team Members
         # Remove Team members, if enabled in config.
         # Also Add/Remove Team member Owner role, if needed.
-        # Note: This property contains additional qualifiers only when relevant - for example, if the member has owner privileges, the roles property contains owner as one of the values.
-        #       Similarly, if the member is an in-tenant guest, the roles property contains guest as one of the values.
+        # Note: This property contains additional qualifiers only when relevant - for example, if the member has owner privileges, the roles property contains 'owner' as one of the values.
+        #       Similarly, if the member is an in-tenant guest, the roles property contains 'guest' as one of the values.
         #       A basic member should not have any values specified in the roles property. An Out-of-tenant external member is assigned the owner role.
         #       More info > https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.teams/update-mgteammember
-
+        # Note: Using application permissions to add guest members (https://learn.microsoft.com/en-us/microsoft-365/admin/add-users/about-guest-users) to a team is not supported.
         foreach ($currentTeamMember in $CurrentTeamMembers)
         {
             # Skip excluded accounts indicated by config.
@@ -789,7 +799,19 @@ try
                 if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email)"}
                 $UpdateTeamMemberResult = Update-MgTeamMember -ConversationMemberId $currentTeamMember.Id -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
             }
+        }
 
+        # Check against disabled users, if enabled.
+        # Remove disabled users from M365 Groups tied to TEAMS in the GroupTeamMapping, if enabled.
+        # We need to do this via groups because disabled user accounts are not returned as Team members.
+        if ($HandleDisabledAccounts)
+        {
+            [array]$TeamDisabledUsers = Get-MgGroupMember -GroupId $mapping.M365_Team_ID | Where-Object Id -In $DisabledUsers.Id
+            foreach ($teamDisabledUser in $TeamDisabledUsers)
+            {
+                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing disabled member from Team `'$($mapping.M365_Team_DisplayName)`': $($teamDisabledUser.AdditionalProperties.displayName)"}
+                Remove-MgGroupMemberByRef -GroupId $mapping.M365_Team_ID -DirectoryObjectId $teamDisabledUser.Id
+            }
         }
     }
 
@@ -920,10 +942,11 @@ try
         # Update Existing Channel Members
         # Remove Channel members, if enabled in config.
         # Also Add/Remove Channel member Owner role, if needed.
-        # Note: This property contains additional qualifiers only when relevant - for example, if the member has owner privileges, the roles property contains owner as one of the values.
-        #       Similarly, if the member is an in-tenant guest, the roles property contains guest as one of the values.
+        # Note: This property contains additional qualifiers only when relevant - for example, if the member has owner privileges, the roles property contains 'owner' as one of the values.
+        #       Similarly, if the member is an in-tenant guest, the roles property contains 'guest' as one of the values.
         #       A basic member should not have any values specified in the roles property. An Out-of-tenant external member is assigned the owner role.
         #       More info > https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.teams/update-mgteamchannelmember
+        # Note: Using application permissions to add guest members (https://learn.microsoft.com/en-us/microsoft-365/admin/add-users/about-guest-users) to a team is not supported.
         foreach ($currentChannelMember in $CurrentChannelMembers)
         {
             # Skip excluded accounts indicated by config.

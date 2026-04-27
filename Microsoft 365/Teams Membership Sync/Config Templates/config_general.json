@@ -7,7 +7,8 @@
         "RemoveExtraTeamMembers": false,
         "RemoveExtraChannelMembers": false,
         "RemoveExtraGroupMembers": false,
-        "SupportExchangeGroups": true
+        "SupportExchangeGroups": true,
+        "HandleDisabledAccounts":true
     },
     "MSGraph": {
         "MgProfile": "v1.0",
