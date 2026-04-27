@@ -47,6 +47,11 @@ General
 - **EnableGroupRecursion (Boolean):** Enable group recursion to allow user lookups within nested groups. Otherwise, the script will use direct group members only.
 - **RemoveExtraTeamMembers (Boolean):** Removes Team members who are no longer in any mapped groups for that Team.
 - **RemoveExtraChannelMembers (Boolean):** Removes Channel members who are no longer in any mapped groups for that Channel.
+- **RemoveExtraGroupMembers (Boolean):**: Removes Group members who are no longer in any mapped groups.
+- **SupportExchangeGroups (Boolean)**: Enables support for Exchange groups. Only Unified (M365) groups and non-mail-enabled security groups can be updated by the Graph API. Enable this setting to allow for mail-enabled security groups and distribution groups to be updated using the Exchange Online Powershell module.
+- **HandleDisabledAccounts (Boolean)**: Gather and process disabled accounts on the tenant to allow for removal from Teams. This only applies for Teams mappings because disabled user accounts are not returned as active Team members.
+
+MSGraph
 - **MgProfile (String):** Specifies the Microsoft Graph API profile version. Use 'v1.0', etc.
 - **MgPermissionType (String):** Set the [type of permission](https://learn.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions) you want to use to access the Microsoft Graph API.
     - **Delegated:** The delegated option will cause the script to prompt for a user to sign in and is only recommended for interactive use. In this case, either the user or an administrator would consent to the permissions needed for the script to access the necessary permission scopes. If you disconnect from the Graph API or if the [tokens expire](https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes), you will need to reauthenticate. Scopes needed by this script for delegated permissions are:
@@ -80,6 +85,9 @@ General
 - **MgApp_CertificateThumbprint (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateThumbprint'. Enter the private key certificate's thumbprint.
 - **MgApp_EncryptedCertificatePassword (Encrypted Standard String):** Optionally used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateFile'. If the account the process runs under cannot decrypt the private key certificate file, the script will attempt to do so using this password. Enter the encrypted standard string of the password into this field. An encrypted standard string can be converted back to its secure string format but **only by the same account on the same computer it was encrypted from**. You can use the [New-EncryptedPassword script](https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily convert a password to an encrypted standard string.
 - **MgApp_EncryptedSecret (Encrypted Standard String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'ClientSecret'. Enter the encrypted standard string of the password into this field. An encrypted standard string can be converted back to its secure string format but **only by the same account on the same computer it was encrypted from**. You can use the [New-EncryptedPassword script](https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily convert a password to an encrypted standard string.
+
+ExchangeOnline
+- TODO: Documentation forthcoming. Only used when 'SupportExchangeGroups' is set to 'true'.
 
 Logging
 - Optionally, enter the logging information based on the [documentation](https://psframework.org/documentation/documents/psframework/logging.html) for the PowerShell Framework module. If you do not want to use the logging system, set the logging 'Enabled' field to false.
