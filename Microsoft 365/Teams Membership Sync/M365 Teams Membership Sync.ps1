@@ -292,8 +292,7 @@ try
                             -Uri https://login.microsoftonline.com/$MgTenantID/oauth2/v2.0/token `
                             -Method POST `
                             -Body $Body
-                        $AccessToken = $Connection.access_token | ConvertTo-SecureString -AsPlainText
-                        $null = Connect-MgGraph -AccessToken $AccessToken
+                        $null = Connect-MgGraph -AccessToken $($Connection.access_token | ConvertTo-SecureString -AsPlainText -Force)
                     }
                     else # If Graph PowerShell SDK is version 2.0.0 or higher.
                     {
