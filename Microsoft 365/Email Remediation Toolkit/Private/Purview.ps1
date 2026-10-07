@@ -52,22 +52,68 @@ function Get-MRPurviewDraft {
     return $draft
 }
 
-function Select-MRPurviewDraft {
-    param([hashtable]$Options)
+function Get-MRPurviewNewDraft {
+    param([string]$CaseName, [hashtable]$Options)
+    if ([string]::IsNullOrWhiteSpace($CaseName)) { throw 'Select an Active case before starting a new search.' }
+    $draft = $Options.Clone()
+    $criteriaKeys = @('Ticket', 'TicketUrl', 'SenderAddress', 'Subject', 'ReceivedFrom', 'ReceivedThrough',
+        'AllDates', 'Mailboxes', 'MailboxMode', 'GroupAddress', 'RunPath', 'ReportPath')
+    foreach ($key in @('Subject', 'ImportedFrom', 'SourceRun', 'SourcePath', 'LastRunPath')) { $draft.Remove($key) }
+    foreach ($key in @('Ticket', 'TicketUrl', 'SenderAddress', 'ReceivedFrom', 'ReceivedThrough', 'GroupAddress', 'RunPath', 'ReportPath')) { $draft[$key] = '' }
+    $draft.Mode = 'Search'; $draft.MenuAction = $true; $draft.CaseName = $CaseName
+    $draft.SelectedCaseTenantId = $Options.TenantId
+    $draft.AllDates = $false; $draft.Mailboxes = @('All'); $draft.MailboxMode = 'All'
+    $draft.PurviewUrl = 'https://purview.microsoft.com/ediscovery/'
+    $draft.ExplicitParameters = @(@($Options.ExplicitParameters | Where-Object { $_ -notin $criteriaKeys }) +
+        @('TenantId', 'UserPrincipalName', 'CaseName', 'PurviewUrl') | Sort-Object -Unique)
+    Write-Host "New search in case: $CaseName. Enter fresh criteria; the selected case will be kept."
+    return $draft
+}
+
+function Get-MRPurviewCaseEntry {
+    param([string]$CaseName, [string]$PreferredCase)
     $cases = @(Get-MRComplianceCase -CaseType eDiscovery -ErrorAction Stop)
-    $caseEntries = @(foreach ($case in $cases) {
+    $entries = @(foreach ($case in $cases) {
         $name = [string](Get-MRProperty $case 'Name')
         if ([string]::IsNullOrWhiteSpace($name)) { continue }
-        if ('CaseName' -in $Options.ExplicitParameters -and $name -ine $Options.CaseName) { continue }
-        [pscustomobject]@{ Key = $name; Label = "$name | $([string](Get-MRProperty $case 'Status'))"; SearchText = $name }
+        if ($CaseName -and $name -ine $CaseName) { continue }
+        $status = ([string](Get-MRProperty $case 'Status')).Trim()
+        if (-not $status) { $status = 'Unknown' }
+        $preferredLabel = if ($PreferredCase -and $name -ieq $PreferredCase) { ' | preferred case' } else { '' }
+        [pscustomobject]@{ Key = $name; Status = $status; Label = "$name | $status$preferredLabel"; SearchText = "$name $status" }
     })
-    $caseEntries = @($caseEntries | Sort-Object Key)
+    return @($entries | Sort-Object Key)
+}
+
+function Select-MRPurviewCaseName {
+    param([string]$PreferredCase)
+    Write-MRPromptHelp CaseName
+    $entries = @(Get-MRPurviewCaseEntry -PreferredCase $PreferredCase)
+    if (-not $entries.Count) { throw 'No accessible standard cases were returned. Create a case without premium features in Purview or check case permissions, then retry Search.' }
+    while ($true) {
+        $selected = Select-MRList -Entries $entries -Title 'Choose the case for the new search' -CaseStatus Active
+        $caseMatches = @($entries | Where-Object Key -EQ ([string]$selected.Key))
+        if ($caseMatches.Count -ne 1) { throw 'The selected case is missing or ambiguous. No search was created.' }
+        if ($caseMatches[0].Status -ine 'Active') {
+            Write-Warning 'Choose an Active case for a new search. Closed cases can be reviewed in Browse Purview; reopen one in Purview if more work belongs there.'
+            continue
+        }
+        Write-Host "New search will be created in case: $($caseMatches[0].Key)"
+        return [string]$caseMatches[0].Key
+    }
+}
+
+function Select-MRPurviewDraft {
+    param([hashtable]$Options)
+    $caseFilter = if ('CaseName' -in $Options.ExplicitParameters) { $Options.CaseName } else { '' }
+    $caseEntries = @(Get-MRPurviewCaseEntry -CaseName $caseFilter)
     if (-not $caseEntries.Count) { Write-Host 'No accessible standard cases were returned. Check your Purview case permissions and any explicit -CaseName filter.'; return }
     while ($true) {
-        try { $selectedCase = Select-MRList -Entries $caseEntries -Title 'Purview standard cases' }
+        try { $selectedCase = Select-MRList -Entries $caseEntries -Title 'Purview standard cases' -CaseStatus Active }
         catch [OperationCanceledException] { return }
         $caseName = [string]$selectedCase.Key
         if ([string]::IsNullOrWhiteSpace($caseName) -or @($caseEntries | Where-Object Key -EQ $caseName).Count -ne 1) { throw 'The selected case is missing or ambiguous.' }
+        $caseIsActive = $selectedCase.Status -ieq 'Active'
         $searches = @(Get-MRComplianceSearch -Case $caseName -ResultSize Unlimited -ErrorAction Stop)
         $entries = @(foreach ($search in $searches) {
             $name = [string](Get-MRProperty $search 'Name')
@@ -76,10 +122,11 @@ function Select-MRPurviewDraft {
             [pscustomobject]@{ Key = $name; Label = "$name | $status"; SearchText = "$name $status" }
         })
         $entries = @($entries | Sort-Object Key)
-        if (-not $entries.Count) { Write-Host "No accessible searches were returned for '$caseName'."; continue }
+        if (-not $entries.Count) { Write-Host "No accessible searches were returned for '$caseName'." }
         while ($true) {
-            try { $selected = Select-MRList -Entries $entries -Title "Searches in $caseName (select one for counts and full details)" }
+            try { $selected = Select-MRList -Entries $entries -Title "Searches in $caseName (select one for PowerShell counts and full details)" -AllowNewSearch:$caseIsActive }
             catch [OperationCanceledException] { break }
+            if ([string](Get-MRProperty $selected 'Action') -eq 'NewSearch' -and $caseIsActive) { return Get-MRPurviewNewDraft -CaseName $caseName -Options $Options }
             $name = [string]$selected.Key
             if ([string]::IsNullOrWhiteSpace($name) -or @($entries | Where-Object Key -EQ $name).Count -ne 1) { throw 'The selected search is missing or ambiguous.' }
             $details = @(Get-MRComplianceSearch -Identity $name -Case $caseName -ErrorAction Stop)
@@ -87,7 +134,8 @@ function Select-MRPurviewDraft {
             $search = $details[0]
             $returnedCase = [string](Get-MRProperty $search 'CaseName')
             if ($returnedCase -and $returnedCase -ine $caseName) { throw 'Purview returned a search from a different case. Nothing was changed.' }
-            Write-Host "`nCase: $caseName`nSearch: $name`nStatus: $([string](Get-MRProperty $search 'Status'))"
+            Write-Host "`nCase: $caseName`nSearch: $name`nPowerShell status: $([string](Get-MRProperty $search 'Status'))"
+            Write-Host 'These are PowerShell search estimates. Portal statistics and processes can differ; zero here does not establish that no messages match.'
             $labels = [ordered]@{ Items = 'Matching items'; Size = 'Matching size'; NumBindings = 'Searched locations'; ContentMatchQuery = 'Search query'; ExchangeLocation = 'Mailboxes'; SharePointLocation = 'SharePoint sites'; OneDriveLocation = 'OneDrive sites'; ExchangeLocationExclusion = 'Excluded mailboxes'; Errors = 'Search errors' }
             foreach ($field in $labels.Keys) {
                 $value = Get-MRProperty $search $field
@@ -95,18 +143,22 @@ function Select-MRPurviewDraft {
                 Write-Host "$($labels[$field]): $($display -replace '[\r\n\x00-\x1f]', ' ')"
             }
             $draft = $null
-            try { $draft = Get-MRPurviewDraft -Search $search -CaseName $caseName -Options $Options }
-            catch { Write-Host "Automatic remediation copy unavailable: $($_.Exception.Message)" }
+            if ($caseIsActive) {
+                try { $draft = Get-MRPurviewDraft -Search $search -CaseName $caseName -Options $Options }
+                catch { Write-Host "Automatic remediation copy unavailable: $($_.Exception.Message)" }
+            } else { Write-Host 'This case is not Active. Review its searches here; reopen the case in Purview before creating a new search in it.' }
             while ($true) {
                 Write-Host "`nSearch actions" -ForegroundColor Cyan
                 Write-Host '[P] Open Microsoft Purview'
+                if ($caseIsActive) { Write-Host '[N] New search in this case, with fresh criteria' }
                 if ($draft) { Write-Host '[C] Copy these criteria into a new remediation run' }
-                else { Write-Host 'This search is view-only here. Use [1] Search from the main menu to build new criteria.' }
+                else { Write-Host 'This existing search is view-only here. Copying requires supported criteria; a new search uses criteria you enter.' }
                 Write-Host '[Enter] Return to the search list'
                 try { $choice = (Read-MRAnswer 'Choose a search action').Trim() }
                 catch [OperationCanceledException] { return }
                 if (-not $choice) { break }
                 if ($choice -ieq 'P') { Start-Process 'https://purview.microsoft.com/ediscovery/' | Out-Null; continue }
+                if ($choice -ieq 'N' -and $caseIsActive) { return Get-MRPurviewNewDraft -CaseName $caseName -Options $Options }
                 if ($choice -ine 'C') { Write-Warning 'Choose a listed action, or press Enter to return to searches.'; continue }
                 if (-not $draft) { Write-Warning 'This search can be viewed, but its conditions cannot be copied automatically. Use Search to build reviewed criteria manually.'; continue }
                 $draft.Ticket = Read-MRValidated 'Ticket or incident number for the new run' $Options.Ticket { param($value) if ($value -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $value -notmatch '[A-Za-z0-9]') { throw 'Enter a valid ticket identifier of 1 to 64 characters.' }; $value } -HelpTopic Ticket

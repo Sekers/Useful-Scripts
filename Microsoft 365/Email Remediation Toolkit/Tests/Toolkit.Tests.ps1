@@ -62,6 +62,52 @@ BeforeAll {
     }
 }
 
+Describe 'Complete immutable JSON evidence' {
+    BeforeEach { Set-StrictMode -Version Latest }
+    It 'stores recursive CultureInfo as a name while preserving search counts and verification fields' {
+        $run = New-ToolkitRun; $path = Save-ToolkitRun $run (Join-Path $TestDrive 'language')
+        $search = New-ToolkitSearch $run
+        $search | Add-Member Language ([globalization.CultureInfo]::InvariantCulture)
+        $search | Add-Member ProviderDiagnostic 'Retain provider details'
+        & { $WarningPreference = 'Stop'; Save-MRSearchBaseline $path $run $search }
+        $saved = Get-Content -LiteralPath (Join-Path $path 'search.json') -Raw | ConvertFrom-Json
+        $saved.Language | Should -BeExactly ''
+        $saved.ProviderDiagnostic | Should -Be 'Retain provider details'
+        $saved.SuccessResults | Should -BeExactly $search.SuccessResults
+        Get-MRResultKey $saved | Should -BeExactly (Get-MRResultKey $search)
+        { Test-MRSearch $saved $run -ForRemoval } | Should -Not -Throw
+    }
+    It 'normalizes deserialized language metadata for search and action snapshots' {
+        $path = Join-Path $TestDrive 'service-snapshots'; New-Item -ItemType Directory $path | Out-Null
+        $value = [pscustomobject]@{ Status = 'Completed'; Results = 'provider results'; Language = [pscustomobject]@{ Name = 'en-US'; Parent = [globalization.CultureInfo]::InvariantCulture } }
+        & { $WarningPreference = 'Stop'; Save-MRSnapshot $path 'purge-result' $value }
+        $saved = Get-Content -LiteralPath @(Get-ChildItem $path -Filter '*.json')[0].FullName -Raw | ConvertFrom-Json
+        $saved.Language | Should -Be 'en-US'; $saved.Results | Should -Be 'provider results'
+        $value.Language.Parent | Should -BeOfType ([globalization.CultureInfo])
+    }
+    It 'rejects unexpected JSON depth without publishing an empty or truncated record' {
+        $path = Join-Path $TestDrive 'deep.json'; $value = @{ Leaf = 'preserve this' }
+        foreach ($level in 1..20) { $value = @{ Nested = $value } }
+        { Write-MRJson $path $value } | Should -Throw '*depth*'
+        Test-Path -LiteralPath $path | Should -BeFalse
+        @(Get-ChildItem $TestDrive -Filter '*.tmp').Count | Should -Be 0
+    }
+    It 'does not replace earlier evidence and cleans up its unpublished temporary file' {
+        $path = Join-Path $TestDrive 'immutable.json'; Write-MRJson $path @{ Count = 83 }
+        $hash = (Get-FileHash -LiteralPath $path).Hash
+        { Write-MRJson $path @{ Count = 0 } } | Should -Throw
+        (Get-FileHash -LiteralPath $path).Hash | Should -Be $hash
+        @(Get-ChildItem $TestDrive -Filter '*.tmp').Count | Should -Be 0
+    }
+    It 'rejects truncated event details without appending misleading evidence' {
+        Write-MREvent $TestDrive 'SearchCreated' @{}
+        $path = Join-Path $TestDrive 'events.jsonl'; $original = Get-Content -LiteralPath $path -Raw
+        $details = @{ Leaf = 'preserve this' }; foreach ($level in 1..15) { $details = @{ Nested = $details } }
+        { Write-MREvent $TestDrive 'PurgeSubmissionAttempt' $details } | Should -Throw '*depth*'
+        Get-Content -LiteralPath $path -Raw | Should -BeExactly $original
+    }
+}
+
 Describe 'Run picker regression and browsing' {
     BeforeEach { Mock Read-Host { $script:inputQueue.Dequeue() } }
     It 'accepts a pasted path with no saved runs under StrictMode' {
@@ -376,7 +422,7 @@ Describe 'Report selection, quick actions and persistent menu' {
     It 'edits and persists the evidence location through the settings screen' {
         $options = New-ToolkitOption; $options.SettingsPath = Join-Path $TestDrive 'ui-settings.json'; $options.NoSavedSettings = $false
         $approved = Join-Path $TestDrive 'approved'
-        Set-ToolkitAnswer @('E', '', '', '', $approved, '')
+        Set-ToolkitAnswer @('E', '', '', $approved, '')
         Show-MRSetting $options -Confirm:$false
         (Read-MRProfile $options.SettingsPath).DataDirectory | Should -Be $approved
     }

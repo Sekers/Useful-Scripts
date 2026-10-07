@@ -125,7 +125,7 @@ Describe 'Clone criteria' {
     It 'lets an interactive clone keep defaults, clear optional fields, and change scope' {
         $options.Interactive = $true
         $script:cloneAnswers = [collections.generic.queue[string]]::new()
-        foreach ($answer in @('', 'NONE', '', 'NONE', 'ALL', '4', 'pilot@contoso.com', '')) { $script:cloneAnswers.Enqueue($answer) }
+        foreach ($answer in @('', 'NONE', '', 'NONE', 'ALL', '4', 'pilot@contoso.com')) { $script:cloneAnswers.Enqueue($answer) }
         Mock Read-Host { $script:cloneAnswers.Dequeue() }
         $clone = Get-MRCloneOption $run $options
         $clone.Ticket | Should -Be $run.Ticket
@@ -466,7 +466,7 @@ Describe 'Complete workflow with Microsoft 365 mocked' {
         $script:answers.Clear()
         $script:messages = [collections.generic.List[string]]::new()
         Mock Write-Host { $script:messages.Add([string]$Object) }
-        foreach ($answer in @('1', '', '22222222-2222-2222-2222-222222222222', 'new-tenant-admin@contoso.com', '', '', '1', 'Q')) { $script:answers.Enqueue($answer) }
+        foreach ($answer in @('1', '', '', '22222222-2222-2222-2222-222222222222', 'new-tenant-admin@contoso.com', '', '1', 'Q')) { $script:answers.Enqueue($answer) }
         Invoke-MRWorkflow -Options $options -WhatIf
         ($script:messages -join "`n") | Should -Match 'Tenant: 22222222-2222-2222-2222-222222222222'
         $script:answers.Count | Should -Be 0

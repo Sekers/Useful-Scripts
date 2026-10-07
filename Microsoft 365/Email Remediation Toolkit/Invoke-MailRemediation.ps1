@@ -247,11 +247,15 @@ function Get-MRCloneOption {
         $scopeChoice = Read-MRMailboxChoice -CurrentMailboxes $clone.Mailboxes -AllowKeep
         if ($scopeChoice) { foreach ($key in $scopeChoice.Keys) { $clone[$key] = $scopeChoice[$key] } }
         Write-MRPromptHelp CaseName
-        $clone.CaseName = Read-MRDefault 'Existing Purview case name' $clone.CaseName
+        if ('CaseName' -in $explicit) { Write-Host "Destination case supplied with -CaseName: $($clone.CaseName)." }
+        else { Write-Host "Preferred case from this run: $($clone.CaseName). Choose an active case after Search signs in." }
     }
     # Inherited criteria belong to the selected run, rather than saved defaults.
     $clone.ExplicitParameters = @($explicit + @('TenantId', 'Ticket', 'TicketUrl', 'SenderAddress',
         'Subject', 'Mailboxes', 'CaseName', 'PurviewUrl', 'ReceivedFrom', 'ReceivedThrough', 'AllDates') | Sort-Object -Unique)
+    if ($clone.Interactive -and 'CaseName' -notin $explicit) {
+        $clone.ExplicitParameters = @($clone.ExplicitParameters | Where-Object { $_ -ne 'CaseName' })
+    }
     $clone.SourceRun = $Source
     if ('GroupAddress' -in $explicit -and 'MailboxMode' -notin $explicit) { $clone.MailboxMode = 'Group' }
     $clone.Mode = 'Search'
@@ -260,26 +264,48 @@ function Get-MRCloneOption {
 
 function Write-MRJson {
     param([string]$Path, $Value)
-    # Every snapshot is a new file. Never replace an earlier record.
-    $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    # Reject truncation before writing. Publish a complete file without replacing evidence.
+    $json = ConvertTo-Json -InputObject $Value -Depth 15 -EnumsAsStrings -ErrorAction Stop -WarningAction Stop
+    $null = ConvertFrom-Json -InputObject $json -ErrorAction Stop
+    $temporaryPath = $Path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
     try {
-        $bytes = [text.encoding]::UTF8.GetBytes(($Value | ConvertTo-Json -Depth 15 -EnumsAsStrings))
-        $stream.Write($bytes, 0, $bytes.Length)
+        $stream = [IO.File]::Open($temporaryPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $bytes = [text.encoding]::UTF8.GetBytes($json)
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        } finally { $stream.Dispose() }
+        [IO.File]::Move($temporaryPath, $Path)
     }
-    finally { $stream.Dispose() }
+    finally { if ([IO.File]::Exists($temporaryPath)) { [IO.File]::Delete($temporaryPath) } }
+}
+
+function ConvertTo-MRServiceRecord {
+    param($Value)
+    $record = [ordered]@{}
+    $names = if ($Value -is [collections.IDictionary]) { @($Value.Keys) } else { @($Value.PSObject.Properties.Name) }
+    foreach ($name in $names) {
+        $propertyValue = if ($Value -is [collections.IDictionary]) { $Value[$name] } else { $Value.$name }
+        # CultureInfo has recursive parent/culture metadata. Only its language name is evidence.
+        if ($propertyValue -is [globalization.CultureInfo] -or
+            ($name -eq 'Language' -and $null -ne $propertyValue -and $null -ne $propertyValue.PSObject.Properties['Name'])) {
+            $record[$name] = [string]$propertyValue.Name
+        } else { $record[$name] = $propertyValue }
+    }
+    return [pscustomobject]$record
 }
 
 function Write-MREvent {
     param([string]$Directory, [string]$EventName, $Details)
     $entry = [ordered]@{ Utc = [datetimeoffset]::UtcNow.ToString('o'); Event = $EventName; Details = $Details }
-    $line = ($entry | ConvertTo-Json -Depth 10 -Compress) + [environment]::NewLine
+    $line = ($entry | ConvertTo-Json -Depth 10 -Compress -ErrorAction Stop -WarningAction Stop) + [environment]::NewLine
     [IO.File]::AppendAllText((Join-Path $Directory 'events.jsonl'), $line, [text.encoding]::UTF8)
 }
 
 function Save-MRSnapshot {
     param([string]$Directory, [string]$Label, $Value)
     $fileName = '{0}-{1}-{2}.json' -f $Label, [datetimeoffset]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'), [guid]::NewGuid().ToString('N').Substring(0, 8)
-    Write-MRJson -Path (Join-Path $Directory $fileName) -Value $Value
+    Write-MRJson -Path (Join-Path $Directory $fileName) -Value (ConvertTo-MRServiceRecord $Value)
 }
 
 function Read-MRRun {
@@ -311,6 +337,7 @@ function Connect-MRPurview {
         throw 'A connection with prefix MR already exists. Run this tool in a fresh PowerShell session.'
     }
     try {
+        Write-Host 'The sign-in window may open behind your current app. Check behind it if you do not see the window.' -ForegroundColor Yellow
         Connect-IPPSSession -UserPrincipalName $upn -Prefix MR -EnableSearchOnlySession -ShowBanner:$false -ErrorAction Stop
         $connections = @(Get-ConnectionInformation -ModulePrefix MR -ErrorAction Stop)
         if ($connections.Count -ne 1 -or -not $connections[0].IsEopSession -or $connections[0].State -ne 'Connected') {
@@ -429,7 +456,9 @@ function Show-MRReview {
     Write-Host "`nTicket: $($Run.Ticket)" -ForegroundColor Cyan
     if ($Run.TicketUrl) { Write-Host "Ticket link: $($Run.TicketUrl)" }
     Write-Host "Search: $($Run.SearchName)"
-    Write-Host "Case: $($Run.CaseName)"
+    Write-Host "Recorded case: $($Run.CaseName)"
+    $serviceCaseId = [string](Get-MRProperty $Search 'CaseId')
+    if ($serviceCaseId) { Write-Host "Service case ID: $serviceCaseId" }
     Write-Host "Query: $($Run.Query)"
     Write-Host "Mailboxes: $($Run.Mailboxes -join ', ')"
     Write-Host "Status: $($Search.Status); matching items: $($Search.Items); searched locations: $($Search.NumBindings)"
@@ -459,11 +488,13 @@ function Save-MRTicketSummary {
     param([string]$Directory, $Run, $Search, $Action)
     $lines = @(
         "Ticket: $($Run.Ticket)", "Ticket URL: $($Run.TicketUrl)", "Tenant ID: $($Run.TenantId)",
-        "Search: $($Run.SearchName)", "Case: $($Run.CaseName)", "Purview: $($Run.PurviewUrl)",
+        "Search: $($Run.SearchName)", "Recorded case: $($Run.CaseName)", "Purview: $($Run.PurviewUrl)",
         "Sender: $($Run.SenderAddress)", "Query: $($Run.Query)", "Mailboxes: $($Run.Mailboxes -join ', ')",
         "Search status: $($Search.Status)", "Search matches: $($Search.Items)", "Searched locations: $($Search.NumBindings)",
         "Recorded UTC: $([datetimeoffset]::UtcNow.ToString('o'))"
     )
+    $serviceCaseId = [string](Get-MRProperty $Search 'CaseId')
+    if ($serviceCaseId) { $lines += "Service case ID: $serviceCaseId" }
     $parent = Get-MRProperty $Run 'ClonedFrom'
     if ($parent) { $lines += "Cloned from: $($parent.SearchName)", "Original saved run: $($parent.RunPath)" }
     if ($Action) {
@@ -528,25 +559,35 @@ function Invoke-MRWorkflow {
                 $Options.Ticket = Read-MRValidated 'Ticket or incident number' $Options.Ticket { param($value) if ($value -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $value -notmatch '[A-Za-z0-9]') { throw 'Enter a ticket identifier of 1 to 64 characters.' }; $value } -HelpTopic Ticket
             }
             if ($Options.Ticket -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $Options.Ticket -notmatch '[A-Za-z0-9]') { throw 'Use a ticket identifier of 1 to 64 characters, including at least one letter or number. Dots, underscores, hashes, and hyphens are allowed.' }
+            if ($Options.Interactive -and -not $Options.SourceRun) {
+                $Options.TicketUrl = Read-MRValidated 'Ticket URL (optional, NONE to clear)' $Options.TicketUrl { param($value)
+                    if ($value -ceq 'NONE') { return '' }
+                    if ($value -and (-not ([uri]$value).IsAbsoluteUri -or ([uri]$value).Scheme -ne 'https')) { throw 'TicketUrl must be an absolute HTTPS URL.' }
+                    $value
+                } -HelpTopic TicketUrl
+            }
             if ('TenantId' -notin $Options.ExplicitParameters -and $savedSettings.Count) { $Options.TenantId = $savedSettings.TenantId }
-            if (($Options.Interactive -and -not $Options.SourceRun) -or -not $Options.TenantId) {
+            if (($Options.Interactive -and -not $Options.SourceRun -and -not $Options.ContainsKey('SelectedCaseTenantId')) -or -not $Options.TenantId) {
                 $Options.TenantId = Read-MRValidated 'Expected tenant ID' $Options.TenantId { param($value) Get-MRTenantId $value } -HelpTopic TenantId
             }
             $Options.TenantId = Get-MRTenantId $Options.TenantId
+            if ($Options.ContainsKey('SelectedCaseTenantId') -and $Options.TenantId -ne $Options.SelectedCaseTenantId) {
+                throw 'The selected case belongs to a different tenant. Return to Browse Purview and select the case in the intended tenant.'
+            }
             if ($savedSettings.Count -and $savedSettings.TenantId -eq $Options.TenantId) {
                 foreach ($name in @('UserPrincipalName', 'CaseName')) {
+                    if ($name -eq 'CaseName' -and $Options.SourceRun) { continue }
                     if ($name -notin $Options.ExplicitParameters) { $Options[$name] = $savedSettings[$name] }
                 }
                 Write-Host "Using saved defaults from $($Options.SettingsPath). Explicit parameters take precedence."
             }
-            if ($Options.Interactive -or -not $Options.UserPrincipalName) {
+            if (($Options.Interactive -and -not $Options.ContainsKey('SelectedCaseTenantId')) -or -not $Options.UserPrincipalName) {
                 $Options.UserPrincipalName = Read-MRValidated 'Administrator sign-in email' $Options.UserPrincipalName { param($value) Get-MREmail $value } -HelpTopic Administrator
             }
             $Options.UserPrincipalName = Get-MREmail $Options.UserPrincipalName
             if (($Options.Interactive -and -not $Options.SourceRun) -or -not $Options.SenderAddress) { $Options.SenderAddress = Read-MRValidated 'Sender email address to search for' $Options.SenderAddress { param($value) Get-MREmail $value } -HelpTopic Sender }
             $Options.SenderAddress = Get-MREmail $Options.SenderAddress
             if ($Options.Interactive -and -not $Options.SourceRun) {
-                if (-not $Options.TicketUrl) { Write-MRPromptHelp TicketUrl; $Options.TicketUrl = Read-MRAnswer 'Ticket URL (optional)' }
                 if (-not @(@('Mailboxes', 'MailboxMode', 'GroupAddress') | Where-Object { $_ -in $Options.ExplicitParameters }).Count) {
                     $scopeChoice = Read-MRMailboxChoice -CurrentMailboxes $Options.Mailboxes
                     foreach ($key in $scopeChoice.Keys) { $Options[$key] = $scopeChoice[$key] }
@@ -597,6 +638,10 @@ function Invoke-MRWorkflow {
             Write-Host "Tenant: $($run.TenantId)`nMailboxes: $($scope -join ', ')`nQuery: $query"
             if (-not $PSCmdlet.ShouldProcess("Tenant $($run.TenantId)", "Create and run search $searchName")) { return }
             $connection = Connect-MRPurview $Options.UserPrincipalName $run.TenantId
+            if ($Options.Interactive -and 'CaseName' -notin $Options.ExplicitParameters) {
+                $Options.CaseName = Select-MRPurviewCaseName -PreferredCase $Options.CaseName
+                $run.CaseName = $Options.CaseName
+            }
             $directory = Join-Path ([IO.Path]::GetFullPath($Options.DataDirectory)) $searchName
             $Options.LastRunPath = $directory
             $null = New-Item -ItemType Directory -Path $directory -ErrorAction Stop

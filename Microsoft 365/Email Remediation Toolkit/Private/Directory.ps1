@@ -27,6 +27,7 @@ function Connect-MRDirectory {
     Import-MRExchangeModule
     if (@(Get-ConnectionInformation -ModulePrefix MRD -ErrorAction Stop).Count) { throw 'An MRD directory connection already exists. Use a fresh PowerShell session.' }
     try {
+        Write-Host 'The sign-in window may open behind your current app. Check behind it if you do not see the window.' -ForegroundColor Yellow
         Connect-ExchangeOnline -UserPrincipalName $upn -Prefix MRD -ShowBanner:$false `
             -CommandName @('Get-Mailbox', 'Get-Recipient', 'Get-DistributionGroupMember', 'Get-UnifiedGroupLinks') -ErrorAction Stop
         $connections = @(Get-ConnectionInformation -ModulePrefix MRD -ErrorAction Stop)

@@ -34,9 +34,14 @@ function Write-MRPromptHelp {
             Write-Host 'Required Purview roles: https://learn.microsoft.com/en-us/purview/edisc-search-mailbox-data#before-you-begin'
         }
         'CaseName' {
-            Write-Host 'Use the exact name of an existing Purview case without premium features. Example: Content Search.'
-            Write-Host 'Find your case: https://purview.microsoft.com/ediscovery/'
-            Write-Host 'If unsure, use [5] Browse Purview from the main menu to list the cases you can access.'
+            Write-Host 'A case groups related investigation work. Each case can contain several searches.'
+            Write-Host 'A search defines which messages to find, using the sender, subject, dates, and mailboxes.'
+            Write-Host 'Reuse an active case for related work. Create a new case when you want a separate incident record.'
+            Write-Host 'Recommended: one case per incident, with several searches as needed. Example: INC-1234 Phishing 2026-10-05.'
+            Write-Host 'The helpdesk ticket labels each run. Several runs can use the same ticket and case; the toolkit does not synchronize them.'
+            Write-Host 'Create or reopen cases in Purview: https://purview.microsoft.com/ediscovery/ (leave premium features off).'
+            Write-Host 'The toolkit creates a fresh search for each remediation run so its results and review belong to that run.'
+            Write-Host 'Creating a case or search does not delete messages. Removal is a separate reviewed step.'
         }
         'EvidenceFolder' {
             Write-Host 'This folder stores run records, reports, and ticket summaries. Enter keeps the displayed AppData or saved location.'
@@ -109,27 +114,42 @@ function Get-MRRunIndex {
 }
 
 function Select-MRList {
-    param([object[]]$Entries, [string]$Title, [switch]$Multiple, [switch]$AllowPath)
+    param([object[]]$Entries, [string]$Title, [switch]$Multiple, [switch]$AllowPath,
+        [ValidateSet('', 'Active', 'Closed', 'All')][string]$CaseStatus = '', [switch]$AllowNewSearch)
     $Entries = @($Entries); $filter = ''; $page = 0; $size = 15
     $chosen = [collections.generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     while ($true) {
-        $filtered = @($Entries | Where-Object { ([string]$_.SearchText).IndexOf($filter, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+        $filtered = @($Entries | Where-Object {
+            (-not $CaseStatus -or $CaseStatus -eq 'All' -or [string](Get-MRProperty $_ 'Status') -ieq $CaseStatus) -and
+            ([string]$_.SearchText).IndexOf($filter, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
         $pages = [math]::Max(1, [int][math]::Ceiling($filtered.Count / $size))
         $page = [math]::Min($page, $pages - 1)
         $visible = @($filtered | Select-Object -Skip ($page * $size) -First $size)
-        Write-Host "`n$Title. Page $($page + 1)/$pages; $($filtered.Count) results; filter: '$filter'" -ForegroundColor Cyan
+        $statusLabel = if ($CaseStatus) { "; case status: $CaseStatus" } else { '' }
+        Write-Host "`n$Title. Page $($page + 1)/$pages; $($filtered.Count) results$statusLabel; filter: '$filter'" -ForegroundColor Cyan
         for ($index = 0; $index -lt $visible.Count; $index++) {
             $marker = if ($chosen.Contains([string]$visible[$index].Key)) { '[selected] ' } else { '' }
             Write-Host "[$($index + 1)] $marker$($visible[$index].Label -replace '[\r\n\x00-\x1f]', ' ')"
         }
-        if (-not $visible.Count) { Write-Host 'No matching entries. Change or clear the filter, or cancel.' }
+        if (-not $visible.Count) {
+            if ($CaseStatus) { Write-Host 'No cases match this status and text filter. Choose another status, clear the text filter, or cancel.' }
+            elseif ($AllowNewSearch) { Write-Host 'No matching searches. Start a new search in this case, change the filter, or cancel.' }
+            else { Write-Host 'No matching entries. Change or clear the filter, or cancel.' }
+        }
         if ($Multiple) {
             Write-Host "Selected: $($chosen.Count). Enter numbers such as 1,3,5 to select or deselect entries on this page."
             Write-Host '[D] Finish with the selected entries'
             Write-Host '[X] Clear all selections'
-        } else { Write-Host 'Enter one displayed number to select an entry.' }
+        } elseif ($visible.Count) { Write-Host 'Enter one displayed number to select an entry.' }
         Write-Host '[/text] Filter the list (example: /smith)'
         Write-Host '[/] Clear the filter'
+        if ($AllowNewSearch) { Write-Host '[S] New search in this case, with fresh criteria' }
+        if ($CaseStatus) {
+            Write-Host '[A] Show Active cases'
+            Write-Host '[L] Show Closed cases'
+            Write-Host '[T] Show All cases'
+        }
         if ($pages -gt 1) {
             Write-Host '[N] Next page'
             Write-Host '[P] Previous page'
@@ -138,6 +158,11 @@ function Select-MRList {
         if ($AllowPath) { Write-Host '[Full path] Open a saved run folder (example: C:\IncidentEvidence\run-folder)' }
         $answer = (Read-MRAnswer 'Selection or command').Trim().Trim('"').Trim("'")
         if ($answer -ieq 'C') { throw [OperationCanceledException]::new('Selection canceled.') }
+        if ($AllowNewSearch -and $answer -ieq 'S') { return [pscustomobject]@{ Action = 'NewSearch' } }
+        if ($CaseStatus -and $answer -in @('A', 'L', 'T')) {
+            $CaseStatus = switch ($answer) { 'A' { 'Active' } 'L' { 'Closed' } 'T' { 'All' } }
+            $page = 0; continue
+        }
         if ($answer.StartsWith('/')) { $filter = $answer.Substring(1); $page = 0; continue }
         if ($answer -ieq 'N') { $page = [math]::Min($page + 1, $pages - 1); continue }
         if ($answer -ieq 'P') { $page = [math]::Max(0, $page - 1); continue }
@@ -287,13 +312,15 @@ function Reset-MRPreference {
 function Edit-MRPreference {
     [CmdletBinding(SupportsShouldProcess)]
     param([hashtable]$Options, [hashtable]$Settings = @{})
-    Write-Host 'Enter keeps any displayed value. If no tenant/account values are shown, leave both blank to configure only the folder and case.'
+    Write-Host 'Enter keeps any displayed value. Leave tenant and administrator both blank to configure only the evidence folder.'
     do {
         $tenant = Read-MRValidated 'Tenant ID (optional)' ([string]$Settings['TenantId']) { param($value) if ($value) { Get-MRTenantId $value } else { '' } } -HelpTopic TenantId
         $upn = Read-MRValidated 'Administrator sign-in email (optional)' ([string]$Settings['UserPrincipalName']) { param($value) if ($value) { Get-MREmail $value } else { '' } } -HelpTopic Administrator
         if ([bool]$tenant -ne [bool]$upn) { Write-Warning 'Supply both tenant and administrator, or leave both blank.' }
     } while ([bool]$tenant -ne [bool]$upn)
-    $case = Read-MRValidated 'Existing Purview case name' $(if ($Settings['CaseName']) { $Settings['CaseName'] } else { $Options.CaseName }) { param($value) if ([string]::IsNullOrWhiteSpace($value) -or $value -match '[\r\n\x00-\x1f]') { throw 'Enter an existing case name.' }; $value } -HelpTopic CaseName
+    $case = if ($Settings['CaseName'] -and $Settings['TenantId'] -eq $tenant) { $Settings['CaseName'] } else { $Options.CaseName }
+    Write-MRPromptHelp CaseName
+    Write-Host 'Choose an existing active case from a list after Search signs in. Setup does not verify or create a case.'
     $location = Read-MRValidated 'Evidence folder (full path)' $(if ($Settings['DataDirectory']) { $Settings['DataDirectory'] } else { [IO.Path]::GetFullPath($Options.DataDirectory) }) { param($value) $value = $value.Trim('"'); if (-not [IO.Path]::IsPathFullyQualified($value)) { throw 'Enter an absolute folder path.' }; [IO.Path]::GetFullPath($value) } -HelpTopic EvidenceFolder
     $updated = [ordered]@{ SchemaVersion = 2; TenantId = $tenant; UserPrincipalName = $upn; CaseName = $case; PurviewUrl = 'https://purview.microsoft.com/ediscovery/'; DataDirectory = $location }
     if ($PSCmdlet.ShouldProcess($Options.SettingsPath, 'Save edited defaults')) {
@@ -326,7 +353,7 @@ function Show-MRSetting {
         catch { $valid = $false; Write-Warning $_.Exception.Message }
         Write-Host "`nSettings: $($Options.SettingsPath)"
         if ($settings.Count) {
-            $labels = [ordered]@{ TenantId = 'Tenant ID'; UserPrincipalName = 'Administrator sign-in email'; CaseName = 'Purview case name'; PurviewUrl = 'Purview link'; DataDirectory = 'Evidence folder' }
+            $labels = [ordered]@{ TenantId = 'Tenant ID'; UserPrincipalName = 'Administrator sign-in email'; CaseName = 'Preferred Purview case (verified when selected)'; PurviewUrl = 'Purview link'; DataDirectory = 'Evidence folder' }
             foreach ($key in $labels.Keys) {
                 $value = if ($settings[$key]) { $settings[$key] } else { 'not configured' }
                 Write-Host "$($labels[$key]): $value"
@@ -364,9 +391,9 @@ function Invoke-MRMenu {
         Write-Host '[2] Remove: review a saved run and confirm message removal'
         Write-Host '[3] Status: refresh a saved run and its ticket summary'
         Write-Host '[4] Clone: adjust a saved run and create a separate search'
-        Write-Host '[5] Browse Purview: view existing cases and searches'
+        Write-Host '[5] Browse Purview: view cases and searches, or start a new search in a case'
         Write-Host '[B] Browse local runs: open saved evidence and summaries'
-        Write-Host '[S] Settings: edit tenant, account, case, and evidence folder'
+        Write-Host '[S] Settings: edit tenant, account, and evidence folder'
         Write-Host '[Q] Quit'
         Write-Host 'Type :cancel or :back at an action prompt to return here.'
         $choice = (Read-Host 'Choose an action').Trim()
@@ -409,7 +436,7 @@ function Save-MRSearchBaseline {
         $events = @(Get-Content -LiteralPath (Join-Path $Directory 'events.jsonl') -ErrorAction Stop | ForEach-Object { $_ | ConvertFrom-Json -ErrorAction Stop })
         if (-not @($events | Where-Object Event -EQ 'SearchCreated').Count -or @($events | Where-Object Event -EQ 'PurgeSubmissionAttempt').Count) { throw 'Cannot recover the original baseline without a creation record, or after a removal submission attempt. Use the saved diagnostics.' }
     }
-    Write-MRJson $path $Search
+    Write-MRJson $path (ConvertTo-MRServiceRecord $Search)
     $locations = @(Get-MRLocationCount ([string](Get-MRProperty $Search 'SuccessResults')))
     if ($locations.Count -and -not (Test-Path -LiteralPath (Join-Path $Directory 'location-counts.csv'))) { $locations | Export-Csv -LiteralPath (Join-Path $Directory 'location-counts.csv') -NoTypeInformation -NoClobber }
     if ($Recovered) {

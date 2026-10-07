@@ -83,6 +83,28 @@ Describe 'Purview source eligibility and provenance' {
         $source.ExchangeLocation = @('All')
         (Get-MRPurviewDraft $source 'Incident case' $options).MailboxMode | Should -Be 'All'
     }
+    It 'starts fresh criteria in the chosen case without inheriting a source search or report' {
+        $options.SenderAddress = 'old@example.com'; $options.Subject = 'Old subject'
+        $options.Ticket = 'OLD-1'; $options.TicketUrl = 'https://helpdesk.example.com/OLD-1'
+        $options.AllDates = $true; $options.ReceivedFrom = '2026-10-01'; $options.ReceivedThrough = '2026-10-07'
+        $options.Mailboxes = @('alice@contoso.com'); $options.GroupAddress = 'staff@contoso.com'
+        $options.ReportPath = 'old-report.csv'; $options.ImportedFrom = $source; $options.LastRunPath = 'old-run'
+        $options.ExplicitParameters = @('Subject', 'AllDates', 'Mailboxes', 'GroupAddress', 'Ticket', 'ReportPath', 'DataDirectory')
+        $draft = Get-MRPurviewNewDraft 'Incident case' $options
+        $draft.Mode | Should -Be 'Search'; $draft.MenuAction | Should -BeTrue
+        $draft.CaseName | Should -Be 'Incident case'; $draft.TenantId | Should -Be $options.TenantId
+        $draft.SelectedCaseTenantId | Should -Be $options.TenantId
+        $draft.UserPrincipalName | Should -Be $options.UserPrincipalName
+        $draft.SenderAddress | Should -BeNullOrEmpty; $draft.Ticket | Should -BeNullOrEmpty
+        $draft.TicketUrl | Should -BeNullOrEmpty; $draft.ReportPath | Should -BeNullOrEmpty
+        $draft.ReceivedFrom | Should -BeNullOrEmpty; $draft.ReceivedThrough | Should -BeNullOrEmpty
+        $draft.AllDates | Should -BeFalse; $draft.Mailboxes | Should -Be @('All')
+        $draft.ContainsKey('Subject') | Should -BeFalse; $draft.ContainsKey('ImportedFrom') | Should -BeFalse
+        $draft.ContainsKey('LastRunPath') | Should -BeFalse
+        $draft.ExplicitParameters | Should -Contain 'CaseName'; $draft.ExplicitParameters | Should -Contain 'DataDirectory'
+        $draft.ExplicitParameters | Should -Not -Contain 'Mailboxes'
+        $options.SenderAddress | Should -Be 'old@example.com'; $options.LastRunPath | Should -Be 'old-run'
+    }
     It 'refuses to drop non-email locations or exclusions: <Property>' -ForEach @(
         @{ Property = 'SharePointLocation' }, @{ Property = 'OneDriveLocation' }, @{ Property = 'ExchangeLocationExclusion' },
         @{ Property = 'SharePointLocationExclusion' }, @{ Property = 'HoldNames' }
@@ -119,8 +141,31 @@ Describe 'Existing Purview browser' {
         Should -Invoke Read-Host -Times 0; Should -Invoke Get-MRComplianceSearch -Times 0
     }
     It 'handles an empty case and lets the operator leave' {
-        Mock Get-MRComplianceSearch { @() }; Set-BrowserAnswer @('1', 'C')
+        Mock Get-MRComplianceSearch { @() }; Set-BrowserAnswer @('1', 'C', 'C')
         Select-MRPurviewDraft $options | Should -BeNullOrEmpty
+    }
+    It 'can start a fresh search from an empty Active case without selecting existing criteria' {
+        Mock Get-MRComplianceSearch { @() }; Set-BrowserAnswer @('1', 'S')
+        $draft = Select-MRPurviewDraft $options
+        $draft.CaseName | Should -Be 'Incident case'; $draft.MenuAction | Should -BeTrue
+        $draft.SenderAddress | Should -BeNullOrEmpty
+        Should -Invoke Get-MRComplianceSearch -Times 0 -ParameterFilter { $Identity }
+        Should -Invoke New-MRComplianceSearch -Times 0
+    }
+    It 'can start a fresh search from unsupported search details without dropping its original conditions' {
+        $source.ContentMatchQuery = '(From:phish@example.com) AND (Sent>2026-10-01)'
+        Set-BrowserAnswer @('1', '1', 'N')
+        $draft = Select-MRPurviewDraft $options
+        $draft.CaseName | Should -Be 'Incident case'; $draft.SenderAddress | Should -BeNullOrEmpty
+        $draft.ContainsKey('ImportedFrom') | Should -BeFalse
+        $source.ContentMatchQuery | Should -BeExactly '(From:phish@example.com) AND (Sent>2026-10-01)'
+        Should -Invoke Set-MRComplianceSearch -Times 0; Should -Invoke New-MRComplianceSearchAction -Times 0
+    }
+    It 'keeps the fresh-search action available while filtering and paging searches' {
+        Mock Get-MRComplianceSearch { foreach ($number in 1..16) { [pscustomobject]@{ Name = ('Search {0:D2}' -f $number); Status = 'NotStarted' } } }
+        Set-BrowserAnswer @('1', 'N', '/no matches', 'S')
+        (Select-MRPurviewDraft $options).CaseName | Should -Be 'Incident case'
+        Should -Invoke Get-MRComplianceSearch -Times 0 -ParameterFilter { $Identity }
     }
     It 'honors an explicit case filter without interpreting saved defaults as a filter' {
         $options.ExplicitParameters = @('CaseName'); $options.CaseName = 'Different case'
@@ -201,6 +246,169 @@ Describe 'Existing Purview browser' {
     }
 }
 
+Describe 'Purview case selection and status filters' {
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        $cases = @(
+            [pscustomobject]@{ Name = 'A closed incident'; Status = 'Closed' },
+            [pscustomobject]@{ Name = 'B active incident'; Status = 'Active' },
+            [pscustomobject]@{ Name = 'C other active incident'; Status = 'Active' },
+            [pscustomobject]@{ Name = 'D unknown incident' }
+        )
+        Mock Get-MRComplianceCase { $cases }
+    }
+    It 'starts with Active cases even when a Closed case sorts first' {
+        Set-BrowserAnswer @('1')
+        Select-MRPurviewCaseName -PreferredCase 'A closed incident' | Should -Be 'B active incident'
+        $script:browserAnswers.Count | Should -Be 0
+    }
+    It 'combines text and status filters and can restore Active after showing Closed' {
+        $entries = @(Get-MRPurviewCaseEntry)
+        Set-BrowserAnswer @('/closed', 'l', '1')
+        (Select-MRList -Entries $entries -Title Cases -CaseStatus Active).Key | Should -Be 'A closed incident'
+        Set-BrowserAnswer @('l', 'a', '/other', '1')
+        (Select-MRList -Entries $entries -Title Cases -CaseStatus Active).Key | Should -Be 'C other active incident'
+    }
+    It 'keeps the status choice when clearing only the text filter' {
+        $entries = @(Get-MRPurviewCaseEntry)
+        Set-BrowserAnswer @('L', '/missing', '/', '1')
+        (Select-MRList -Entries $entries -Title Cases -CaseStatus Active).Status | Should -Be 'Closed'
+    }
+    It 'keeps an empty Active view navigable and exposes unknown status only under All' {
+        $entries = @(Get-MRPurviewCaseEntry) | Where-Object Status -NE Active
+        Set-BrowserAnswer @('T', '/unknown', '1')
+        (Select-MRList -Entries $entries -Title Cases -CaseStatus Active).Key | Should -Be 'D unknown incident'
+    }
+    It 'resets pagination when switching to a smaller status list' {
+        $entries = @(1..16 | ForEach-Object { [pscustomobject]@{ Key = "Active $_"; Label = "Active $_"; SearchText = "Active $_"; Status = 'Active' } })
+        $entries += [pscustomobject]@{ Key = 'Closed'; Label = 'Closed'; SearchText = 'Closed'; Status = 'Closed' }
+        Set-BrowserAnswer @('N', 'L', '1')
+        (Select-MRList -Entries $entries -Title Cases -CaseStatus Active).Key | Should -Be 'Closed'
+    }
+    It 'does not select a Closed case as the destination of a new search' {
+        Set-BrowserAnswer @('L', '1', '1')
+        Select-MRPurviewCaseName | Should -Be 'B active incident'
+        $script:browserAnswers.Count | Should -Be 0
+    }
+    It 'rejects ambiguous case names instead of creating a search in an uncertain case' {
+        Mock Get-MRComplianceCase { @($cases[1], $cases[1]) }
+        Set-BrowserAnswer @('1')
+        { Select-MRPurviewCaseName } | Should -Throw '*ambiguous*'
+    }
+    It 'provides a route to Purview when no accessible compatible cases exist' {
+        Mock Get-MRComplianceCase { @() }; Mock Read-Host { throw 'Unexpected prompt.' }
+        { Select-MRPurviewCaseName } | Should -Throw '*Create a case without premium features in Purview*'
+        Should -Invoke Read-Host -Times 0
+    }
+    It 'keeps Closed cases and their search details available for read-only review' {
+        $options = New-BrowserOption; $source = New-BrowserSearch; $source.CaseName = 'A closed incident'
+        Mock Get-MRComplianceSearch { $source }
+        Mock Get-MRPurviewDraft { throw 'Closed searches must stay view-only.' }
+        Mock Get-MRPurviewNewDraft { throw 'Closed cases must not start a new draft.' }
+        Set-BrowserAnswer @('L', '1', 'S', '1', 'N', '', 'C', 'C')
+        Select-MRPurviewDraft $options | Should -BeNullOrEmpty
+        Should -Invoke Get-MRComplianceSearch -Times 2 -Exactly -ParameterFilter { $Case -eq 'A closed incident' }
+        Should -Invoke Get-MRPurviewDraft -Times 0
+        Should -Invoke Get-MRPurviewNewDraft -Times 0
+        $script:browserAnswers.Count | Should -Be 0
+    }
+}
+
+Describe 'Interactive Search case picker' {
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        $options = New-BrowserOption; $options.Mode = 'Search'; $options.MenuAction = $true; $options.Ticket = 'INC-55'
+        $options.TicketUrl = 'https://helpdesk.example.com/INC-55'
+        $options.SenderAddress = 'phish@example.com'; $options.Subject = 'Cell phone'; $options.AllDates = $true
+        $options.NoSavedSettings = $true; $options.CaseName = 'Missing old default'
+        $options.ExplicitParameters = @('Mailboxes')
+        Mock Read-MRValidated { $Default }
+        Mock Show-MRQuickAction {}
+        Mock Connect-MRPurview { [pscustomobject]@{ UserPrincipalName = $options.UserPrincipalName; TenantID = $options.TenantId } }
+        Mock Disconnect-ExchangeOnline {}
+        Mock Get-MRComplianceCase { [pscustomobject]@{ Name = 'Selected active case'; Status = 'Active' } }
+        Mock Start-MRComplianceSearch {}; Mock New-MRComplianceSearchAction {}
+        Mock New-MRComplianceSearch {
+            $script:pickerSearch = [pscustomobject]@{ Name = $Name; Description = $Description; ContentMatchQuery = $ContentMatchQuery
+                ExchangeLocation = $ExchangeLocation; SharePointLocation = @(); OneDriveLocation = @(); ExchangeLocationExclusion = @()
+                SharePointLocationExclusion = @(); HoldNames = @(); Status = 'Completed'; JobRunId = 'picker job'; Items = 1; NumBindings = 1; Errors = '' }
+        }
+        Mock Wait-MRJob { $script:pickerSearch }
+    }
+    It 'stores and uses the selected case rather than a missing saved default' {
+        Set-BrowserAnswer @('1')
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        (Read-MRRun $options.LastRunPath).CaseName | Should -Be 'Selected active case'
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Selected active case' }
+        Should -Invoke New-MRComplianceSearchAction -Times 0
+    }
+    It 'asks for the ticket number and URL consecutively before tenant and message details' {
+        $script:promptTopics = [collections.generic.list[string]]::new()
+        Mock Read-MRValidated { $script:promptTopics.Add($HelpTopic); $Default }
+        Set-BrowserAnswer @('1')
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        @($script:promptTopics | Select-Object -First 2) | Should -Be @('Ticket', 'TicketUrl')
+        $script:promptTopics.IndexOf('TenantId') | Should -BeGreaterThan 1
+        $script:promptTopics.IndexOf('Sender') | Should -BeGreaterThan 1
+    }
+    It 'uses fresh browser criteria in the selected case and preserves separate evidence' {
+        $draft = Get-MRPurviewNewDraft 'Chosen browser case' $options
+        $script:freshInput = @{ Ticket = 'INC-99'; TicketUrl = ''; Sender = 'new@example.com'; Subject = 'New subject' }
+        Mock Read-MRValidated { if ($script:freshInput.ContainsKey($HelpTopic)) { $script:freshInput[$HelpTopic] } elseif ($Prompt -like 'First date*') { 'ALL' } else { throw "Unexpected prompt: $Prompt" } }
+        Mock Read-MRMailboxChoice { @{ MailboxMode = 'All'; Mailboxes = @('All'); GroupAddress = '' } }
+        Mock Get-MRComplianceCase { throw 'The browser already selected the case.' }
+        Invoke-MRWorkflow -Options $draft -Confirm:$false
+        $run = Read-MRRun $draft.LastRunPath
+        $run.CaseName | Should -Be 'Chosen browser case'; $run.Ticket | Should -Be 'INC-99'
+        $run.SenderAddress | Should -Be 'new@example.com'; $run.Subject | Should -Be 'New subject'
+        $run.PSObject.Properties.Name | Should -Not -Contain 'ImportedFrom'
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Chosen browser case' -and $ContentMatchQuery -eq 'kind:email AND from:"new@example.com" AND subject:"New subject"' }
+        Should -Invoke New-MRComplianceSearchAction -Times 0
+    }
+    It 'blocks a fresh browser draft if its tenant is changed after case selection' {
+        $draft = Get-MRPurviewNewDraft 'Chosen browser case' $options
+        $draft.Ticket = 'INC-55'
+        $draft.TenantId = '22222222-2222-2222-2222-222222222222'
+        { Invoke-MRWorkflow -Options $draft -Confirm:$false } | Should -Throw '*case belongs to a different tenant*'
+        Should -Invoke Connect-MRPurview -Times 0; Should -Invoke New-MRComplianceSearch -Times 0
+        Test-Path -LiteralPath $draft.DataDirectory | Should -BeFalse
+    }
+    It 'cancels before creating a search or evidence and closes the authentication session' {
+        Set-BrowserAnswer @('C')
+        { Invoke-MRWorkflow -Options $options -Confirm:$false } | Should -Throw '*canceled*'
+        Should -Invoke New-MRComplianceSearch -Times 0
+        Should -Invoke Disconnect-ExchangeOnline -Times 1 -Exactly
+        Test-Path -LiteralPath $options.DataDirectory | Should -BeFalse
+    }
+    It 'keeps previews offline without fetching cases or asking for a selection' {
+        Mock Read-Host { throw 'Unexpected picker prompt.' }
+        Invoke-MRWorkflow -Options $options -WhatIf
+        Should -Invoke Get-MRComplianceCase -Times 0; Should -Invoke Connect-MRPurview -Times 0
+        Should -Invoke Read-Host -Times 0; Should -Invoke New-MRComplianceSearch -Times 0
+    }
+    It 'respects an explicitly supplied case without adding a picker prompt' {
+        $options.CaseName = 'Explicit case'; $options.ExplicitParameters += 'CaseName'
+        Mock Read-Host { throw 'Unexpected picker prompt.' }
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        Should -Invoke Get-MRComplianceCase -Times 0
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Explicit case' }
+    }
+}
+
+Describe 'Interactive ticket URL validation' {
+    It 'lets the operator correct an invalid URL immediately without signing in during a preview' {
+        $options = New-BrowserOption; $options.Mode = 'Search'; $options.MenuAction = $true
+        $options.Ticket = 'INC-55'; $options.SenderAddress = 'phish@example.com'; $options.Subject = ''; $options.AllDates = $true
+        $options.NoSavedSettings = $true; $options.ExplicitParameters = @('Mailboxes')
+        Set-BrowserAnswer @('', 'http://helpdesk.example.com/INC-55', 'https://helpdesk.example.com/INC-55', '', '', '')
+        Mock Connect-MRPurview { throw 'Preview must stay offline.' }; Mock New-MRComplianceSearch {}
+        Invoke-MRWorkflow -Options $options -WhatIf
+        $options.TicketUrl | Should -Be 'https://helpdesk.example.com/INC-55'
+        $script:browserAnswers.Count | Should -Be 0
+        Should -Invoke Connect-MRPurview -Times 0; Should -Invoke New-MRComplianceSearch -Times 0
+    }
+}
+
 Describe 'Read-only Purview connection commands' {
     BeforeEach {
         Set-StrictMode -Version Latest
@@ -228,7 +436,7 @@ Describe 'Read-only Purview connection commands' {
 Describe 'First-run menu setup' {
     BeforeEach { Set-StrictMode -Version Latest; $options = New-BrowserOption; $options.Mode = 'Menu'; Mock Connect-MRPurview {}; Mock Start-Process {} }
     It 'offers setup before the first action and persists only the chosen defaults' {
-        Set-BrowserAnswer @('y', '', '', '', '', 'Q')
+        Set-BrowserAnswer @('y', '', '', '', 'Q')
         Invoke-MRMenu $options -Confirm:$false
         $settings = Read-MRProfile $options.SettingsPath
         $settings.TenantId | Should -Be $options.TenantId
@@ -238,7 +446,7 @@ Describe 'First-run menu setup' {
     }
     It 'offers setup through the main workflow with no initial tenant or account' {
         $options.TenantId = ''; $options.UserPrincipalName = ''
-        Set-BrowserAnswer @('y', '11111111-1111-1111-1111-111111111111', 'admin@contoso.com', '', '', 'Q')
+        Set-BrowserAnswer @('y', '11111111-1111-1111-1111-111111111111', 'admin@contoso.com', '', 'Q')
         Invoke-MRWorkflow -Options $options -Confirm:$false
         $settings = Read-MRProfile $options.SettingsPath
         $settings.TenantId | Should -Be '11111111-1111-1111-1111-111111111111'
