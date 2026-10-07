@@ -26,7 +26,7 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
-    [ValidateSet('Menu', 'Search', 'Clone', 'Remove', 'Status')][string]$Mode = 'Menu',
+    [ValidateSet('Menu', 'Search', 'Clone', 'Remove', 'Status', 'BrowsePurview')][string]$Mode = 'Menu',
     [string]$Ticket,
     [string]$TicketUrl,
     [string]$UserPrincipalName,
@@ -68,9 +68,22 @@ function Get-MREmail {
     return $valueTrimmed.ToLowerInvariant()
 }
 
+function Get-MRTenantId {
+    param([string]$Value)
+    $tenant = [guid]::Empty
+    if (-not [guid]::TryParse($Value, [ref]$tenant)) {
+        throw 'Enter the Tenant ID as a GUID, such as 11111111-1111-1111-1111-111111111111. Copy your own value from Entra ID > Overview > Properties > Tenant ID.'
+    }
+    return $tenant.ToString()
+}
+
 function Get-MRDate {
     param([string]$Value)
-    return [datetime]::ParseExact($Value, 'yyyy-MM-dd', [cultureinfo]::InvariantCulture)
+    $date = [datetime]::MinValue
+    if (-not [datetime]::TryParseExact($Value, 'yyyy-MM-dd', [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$date)) {
+        throw 'Enter a real UTC calendar date in yyyy-MM-dd format, such as 2026-10-05.'
+    }
+    return $date
 }
 
 function Read-MRProfile {
@@ -219,20 +232,22 @@ function Get-MRCloneOption {
     }
     if ($clone.Interactive) {
         Write-Host 'Enter keeps a value. Type NONE to clear the optional subject or ticket URL.'
-        $clone.Ticket = Read-MRValidated 'Ticket or incident number' $clone.Ticket { param($value) if ($value -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $value -notmatch '[A-Za-z0-9]') { throw 'Enter a valid ticket identifier of 1 to 64 characters.' }; $value }
+        $clone.Ticket = Read-MRValidated 'Ticket or incident number' $clone.Ticket { param($value) if ($value -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $value -notmatch '[A-Za-z0-9]') { throw 'Enter a valid ticket identifier of 1 to 64 characters.' }; $value } -HelpTopic Ticket
+        Write-MRPromptHelp TicketUrl
         $clone.TicketUrl = Read-MRDefault 'Ticket URL (optional, NONE to clear)' $clone.TicketUrl
         if ($clone.TicketUrl -ceq 'NONE') { $clone.TicketUrl = '' }
-        $clone.SenderAddress = Read-MRValidated 'Sender email address' $clone.SenderAddress { param($value) Get-MREmail $value }
-        $clone.Subject = Read-MRValidated 'Subject phrase (NONE for all subjects)' $clone.Subject { param($value) if ($value -match '["*\r\n\x00-\x1f\u201c\u201d]') { throw 'Use a phrase without quotes, wildcards, or control characters.' }; $value }
+        $clone.SenderAddress = Read-MRValidated 'Sender email address' $clone.SenderAddress { param($value) Get-MREmail $value } -HelpTopic Sender
+        $clone.Subject = Read-MRValidated 'Subject phrase (NONE for all subjects)' $clone.Subject { param($value) if ($value -match '["*\r\n\x00-\x1f\u201c\u201d]') { throw 'Use a phrase without quotes, wildcards, or control characters.' }; $value } -HelpTopic Subject
         if ($clone.Subject -ceq 'NONE') { $clone.Subject = '' }
         $firstDate = if ($clone.AllDates) { 'ALL' } else { $clone.ReceivedFrom }
-        $clone.ReceivedFrom = Read-MRValidated 'First UTC date (yyyy-MM-dd), or ALL' $firstDate { param($value) if ($value -ieq 'ALL') { 'ALL' } else { (Get-MRDate $value).ToString('yyyy-MM-dd') } }
+        $clone.ReceivedFrom = Read-MRValidated 'First UTC date (yyyy-MM-dd), or ALL' $firstDate { param($value) if ($value -ieq 'ALL') { 'ALL' } else { (Get-MRDate $value).ToString('yyyy-MM-dd') } } -HelpTopic Dates
         $clone.AllDates = $clone.ReceivedFrom -ceq 'ALL'
         if ($clone.AllDates) { $clone.ReceivedFrom = ''; $clone.ReceivedThrough = '' }
         else { $clone.ReceivedThrough = Read-MRValidated 'Last UTC date (yyyy-MM-dd)' $clone.ReceivedThrough { param($value) $date = Get-MRDate $value; if ($date -lt (Get-MRDate $clone.ReceivedFrom)) { throw 'The last date must be on or after the first date.' }; $date.ToString('yyyy-MM-dd') } }
         $scopeChoice = Read-MRMailboxChoice -CurrentMailboxes $clone.Mailboxes -AllowKeep
         if ($scopeChoice) { foreach ($key in $scopeChoice.Keys) { $clone[$key] = $scopeChoice[$key] } }
-        $clone.CaseName = Read-MRDefault 'Existing non-premium case' $clone.CaseName
+        Write-MRPromptHelp CaseName
+        $clone.CaseName = Read-MRDefault 'Existing Purview case name' $clone.CaseName
     }
     # Inherited criteria belong to the selected run, rather than saved defaults.
     $clone.ExplicitParameters = @($explicit + @('TenantId', 'Ticket', 'TicketUrl', 'SenderAddress',
@@ -288,7 +303,7 @@ function Read-MRRun {
 }
 
 function Connect-MRPurview {
-    param([string]$UserPrincipalName, [string]$TenantId)
+    param([string]$UserPrincipalName, [string]$TenantId, [switch]$ReadOnly)
     $null = [guid]::Parse($TenantId)
     $upn = Get-MREmail $UserPrincipalName
     Import-MRExchangeModule
@@ -305,7 +320,9 @@ function Connect-MRPurview {
         if ([guid]$connection.TenantID -ne [guid]$TenantId -or $connection.UserPrincipalName -ine $upn) {
             throw 'The signed-in tenant or administrator differs from the requested identity. Nothing will be changed.'
         }
-        foreach ($command in @('New-MRComplianceSearch', 'Start-MRComplianceSearch', 'Get-MRComplianceSearch')) {
+        $requiredCommands = if ($ReadOnly) { @('Get-MRComplianceCase', 'Get-MRComplianceSearch') }
+            else { @('New-MRComplianceSearch', 'Start-MRComplianceSearch', 'Get-MRComplianceSearch') }
+        foreach ($command in $requiredCommands) {
             $null = Get-Command $command -ErrorAction Stop
         }
         return $connection
@@ -492,6 +509,12 @@ function Invoke-MRWorkflow {
             catch { $settingsUsable = $false; Write-Warning "Saved defaults were ignored and will not be overwritten: $($_.Exception.Message)" }
         }
         if ('DataDirectory' -notin $Options.ExplicitParameters -and $savedSettings.ContainsKey('DataDirectory')) { $Options.DataDirectory = $savedSettings.DataDirectory }
+        if ($Options.Mode -eq 'BrowsePurview') {
+            $browserParameters = @{ Options = $Options; SavedSettings = $savedSettings; WhatIf = $WhatIfPreference }
+            if ($PSBoundParameters.ContainsKey('Confirm')) { $browserParameters.Confirm = $PSBoundParameters.Confirm }
+            Invoke-MRPurviewBrowser @browserParameters
+            return
+        }
         if ($Options.Mode -eq 'Clone') {
             if (-not $Options.RunPath) { $Options.RunPath = Select-MRRun $Options.DataDirectory }
             $sourcePath = (Resolve-Path -LiteralPath $Options.RunPath).Path
@@ -502,14 +525,14 @@ function Invoke-MRWorkflow {
         }
         if ($Options.Mode -eq 'Search') {
             if (($Options.Interactive -and -not $Options.SourceRun) -or -not $Options.Ticket) {
-                $Options.Ticket = Read-MRValidated 'Ticket or incident number' $Options.Ticket { param($value) if ($value -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $value -notmatch '[A-Za-z0-9]') { throw 'Enter a ticket identifier of 1 to 64 characters.' }; $value }
+                $Options.Ticket = Read-MRValidated 'Ticket or incident number' $Options.Ticket { param($value) if ($value -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $value -notmatch '[A-Za-z0-9]') { throw 'Enter a ticket identifier of 1 to 64 characters.' }; $value } -HelpTopic Ticket
             }
             if ($Options.Ticket -notmatch '^[A-Za-z0-9#][A-Za-z0-9._#-]{0,63}$' -or $Options.Ticket -notmatch '[A-Za-z0-9]') { throw 'Use a ticket identifier of 1 to 64 characters, including at least one letter or number. Dots, underscores, hashes, and hyphens are allowed.' }
             if ('TenantId' -notin $Options.ExplicitParameters -and $savedSettings.Count) { $Options.TenantId = $savedSettings.TenantId }
             if (($Options.Interactive -and -not $Options.SourceRun) -or -not $Options.TenantId) {
-                $Options.TenantId = Read-MRValidated 'Expected tenant ID (Entra admin center, Overview)' $Options.TenantId { param($value) ([guid]::Parse($value)).ToString() }
+                $Options.TenantId = Read-MRValidated 'Expected tenant ID' $Options.TenantId { param($value) Get-MRTenantId $value } -HelpTopic TenantId
             }
-            $Options.TenantId = ([guid]::Parse($Options.TenantId)).ToString()
+            $Options.TenantId = Get-MRTenantId $Options.TenantId
             if ($savedSettings.Count -and $savedSettings.TenantId -eq $Options.TenantId) {
                 foreach ($name in @('UserPrincipalName', 'CaseName')) {
                     if ($name -notin $Options.ExplicitParameters) { $Options[$name] = $savedSettings[$name] }
@@ -517,21 +540,21 @@ function Invoke-MRWorkflow {
                 Write-Host "Using saved defaults from $($Options.SettingsPath). Explicit parameters take precedence."
             }
             if ($Options.Interactive -or -not $Options.UserPrincipalName) {
-                $Options.UserPrincipalName = Read-MRValidated 'Administrator email address' $Options.UserPrincipalName { param($value) Get-MREmail $value }
+                $Options.UserPrincipalName = Read-MRValidated 'Administrator sign-in email' $Options.UserPrincipalName { param($value) Get-MREmail $value } -HelpTopic Administrator
             }
             $Options.UserPrincipalName = Get-MREmail $Options.UserPrincipalName
-            if (($Options.Interactive -and -not $Options.SourceRun) -or -not $Options.SenderAddress) { $Options.SenderAddress = Read-MRValidated 'Sender email address to search for' $Options.SenderAddress { param($value) Get-MREmail $value } }
+            if (($Options.Interactive -and -not $Options.SourceRun) -or -not $Options.SenderAddress) { $Options.SenderAddress = Read-MRValidated 'Sender email address to search for' $Options.SenderAddress { param($value) Get-MREmail $value } -HelpTopic Sender }
             $Options.SenderAddress = Get-MREmail $Options.SenderAddress
             if ($Options.Interactive -and -not $Options.SourceRun) {
-                if (-not $Options.TicketUrl) { $Options.TicketUrl = Read-MRAnswer 'Ticket URL (optional)' }
+                if (-not $Options.TicketUrl) { Write-MRPromptHelp TicketUrl; $Options.TicketUrl = Read-MRAnswer 'Ticket URL (optional)' }
                 if (-not @(@('Mailboxes', 'MailboxMode', 'GroupAddress') | Where-Object { $_ -in $Options.ExplicitParameters }).Count) {
                     $scopeChoice = Read-MRMailboxChoice -CurrentMailboxes $Options.Mailboxes
                     foreach ($key in $scopeChoice.Keys) { $Options[$key] = $scopeChoice[$key] }
                 }
             }
-            if (-not $Options.ContainsKey('Subject')) { $Options.Subject = Read-MRValidated 'Subject phrase (Enter to search all subjects from this sender)' '' { param($value) if ($value -match '["*\r\n\x00-\x1f\u201c\u201d]') { throw 'Use a phrase without quotes, wildcards, or control characters.' }; $value } }
+            if (-not $Options.ContainsKey('Subject')) { $Options.Subject = Read-MRValidated 'Subject phrase (Enter to search all subjects from this sender)' '' { param($value) if ($value -match '["*\r\n\x00-\x1f\u201c\u201d]') { throw 'Use a phrase without quotes, wildcards, or control characters.' }; $value } -HelpTopic Subject }
             if (-not $Options.AllDates -and (-not $Options.ReceivedFrom -or -not $Options.ReceivedThrough)) {
-                Write-Host 'Dates are UTC calendar days, including the whole end date.'
+                Write-MRPromptHelp Dates
                 if (-not $Options.ReceivedFrom) { $Options.ReceivedFrom = Read-MRValidated 'First date (yyyy-MM-dd), or ALL for all dates' '' { param($value) if ($value -ieq 'ALL') { 'ALL' } else { (Get-MRDate $value).ToString('yyyy-MM-dd') } } }
                 if ($Options.ReceivedFrom -ieq 'ALL') { $Options.AllDates = $true; $Options.ReceivedFrom = ''; $Options.ReceivedThrough = '' }
                 elseif (-not $Options.ReceivedThrough) { $Options.ReceivedThrough = Read-MRValidated 'Last date (yyyy-MM-dd)' '' { param($value) $date = Get-MRDate $value; if ($date -lt (Get-MRDate $Options.ReceivedFrom)) { throw 'The last date must be on or after the first date.' }; $date.ToString('yyyy-MM-dd') } }
@@ -563,6 +586,7 @@ function Invoke-MRWorkflow {
                 ReceivedThrough = $Options.ReceivedThrough; AllDates = [bool]$Options.AllDates; Mailboxes = $scope; Query = $query
             }
             if ($selection.Metadata) { $run | Add-Member ScopeSelection $selection.Metadata }
+            if ($Options.ContainsKey('ImportedFrom')) { $run | Add-Member ImportedFrom $Options.ImportedFrom }
             if ($Options.SourceRun) {
                 $run | Add-Member -NotePropertyName ClonedFrom -NotePropertyValue ([pscustomobject]@{
                     RunId = $Options.SourceRun.RunId; SearchName = $Options.SourceRun.SearchName
@@ -614,7 +638,7 @@ function Invoke-MRWorkflow {
         if ($savedSettings.Count -and $savedSettings.TenantId -eq $run.TenantId -and
             'UserPrincipalName' -notin $Options.ExplicitParameters) { $Options.UserPrincipalName = $savedSettings.UserPrincipalName }
         if ($Options.Interactive -or -not $Options.UserPrincipalName) {
-            $Options.UserPrincipalName = Read-MRValidated 'Administrator email address' $Options.UserPrincipalName { param($value) Get-MREmail $value }
+            $Options.UserPrincipalName = Read-MRValidated 'Administrator sign-in email' $Options.UserPrincipalName { param($value) Get-MREmail $value } -HelpTopic Administrator
         }
         $Options.UserPrincipalName = Get-MREmail $Options.UserPrincipalName
         $runLock = [IO.File]::Open((Join-Path $directory 'run.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
@@ -679,7 +703,10 @@ function Invoke-MRWorkflow {
         if ((Get-FileHash -LiteralPath $copyPath -Algorithm SHA256).Hash -ne $reportHash) { throw 'The report changed while it was copied. Removal is blocked.' }
         Write-MREvent $directory 'ReportReviewed' @{ Path = $copyPath; SHA256 = $reportHash; Items = [long]$reviewedCount; Administrator = $connection.UserPrincipalName }
         if ($Options.Interactive -and 'PurgeType' -notin $Options.ExplicitParameters) {
-            $Options.PurgeType = Read-MRValidated 'Removal type (HardDelete or SoftDelete)' $Options.PurgeType { param($value) if ($value -notin @('HardDelete', 'SoftDelete')) { throw 'Choose HardDelete or SoftDelete.' }; if ($value -ieq 'HardDelete') { 'HardDelete' } else { 'SoftDelete' } }
+            Write-Host "`nChoose a removal type" -ForegroundColor Cyan
+            Write-Host '[HardDelete] Remove messages so users cannot recover them; retained service copies may remain'
+            Write-Host '[SoftDelete] Remove messages from normal folders; users can recover them during retention'
+            $Options.PurgeType = Read-MRValidated 'Removal type' $Options.PurgeType { param($value) if ($value -notin @('HardDelete', 'SoftDelete')) { throw 'Choose HardDelete or SoftDelete.' }; if ($value -ieq 'HardDelete') { 'HardDelete' } else { 'SoftDelete' } }
         }
         Write-Host "`nRemoval type: $($Options.PurgeType)" -ForegroundColor Yellow
         if ($Options.PurgeType -eq 'HardDelete') { Write-Host 'Users cannot recover these messages. Holds and single item recovery may retain copies in Microsoft 365.' }
@@ -738,6 +765,7 @@ function Invoke-MRWorkflow {
 
 . (Join-Path $PSScriptRoot 'Private\Interface.ps1')
 . (Join-Path $PSScriptRoot 'Private\Directory.ps1')
+. (Join-Path $PSScriptRoot 'Private\Purview.ps1')
 
 # Dot-sourcing loads functions for offline tests without connecting or prompting.
 if ($MyInvocation.InvocationName -ne '.') {

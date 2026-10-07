@@ -12,22 +12,44 @@ Open PowerShell 7 in this directory and run:
 .\Invoke-MailRemediation.ps1
 ```
 
-The menu offers:
+Every menu displays each choice on its own line, with a key and a short explanation. The main menu offers:
 
 1. **Search:** enter an incident number, administrator account, expected tenant ID, sender, optional subject, UTC dates, and mailbox scope. Choose all mailboxes, a searchable mailbox list, members of a group, or pasted addresses. No messages are removed.
 2. **Remove:** select a recent saved run, review the corresponding Purview report, and explicitly confirm removal.
 3. **Status:** select a saved run to check the search and purge status and generate a current ticket summary.
 4. **Clone:** select a saved search, adjust its filters, and create a new search with separate evidence and review.
+5. **Browse Purview:** list accessible standard cases and their existing searches.
 
-**B. Browse runs/evidence** opens a searchable history, and **S. Settings** displays or edits saved defaults and the approved evidence folder. The menu returns after each action until you choose **Q**. Most invalid inputs can be corrected in place. Type `:cancel` or `:back` at an action prompt to return to the menu. Canceling never retries a server mutation.
+- **B. Browse local runs:** open saved evidence and summaries.
+- **S. Settings:** display or edit saved defaults and the evidence folder.
+- **Q. Quit:** close the toolkit.
+
+The menu returns after each action until you choose **Q**. Most invalid inputs can be corrected in place. Type `:cancel` or `:back` at an action prompt to return to the menu. Canceling never retries a server mutation.
 
 Saved runs are sorted by their recorded creation time, with ticket, subject, sender, search and removal status, match count, and UTC time. Type `/text` to filter, `/` to clear the filter, and `N` or `P` to page through the complete history. You can also paste a full run folder path. Recent statuses come from saved snapshots; use Status to refresh them from Microsoft.
 
 After an action, quick actions open **P**urview, the **E**vidence folder, or the latest **T**icket summary, or **C**opy that summary to the clipboard. Enter returns to the menu. These actions do not upload evidence or contact a ticket system.
 
-Use a dedicated PowerShell session. Purview uses the `MR` connection prefix. Directory selection uses a separate `MRD` Exchange connection, which closes before the Purview search begins. Both connections check the signed-in account and tenant and close only their own connections. The tenant ID is available in the Entra admin center's Overview page.
+Use a dedicated PowerShell session. Purview uses the `MR` connection prefix. Directory selection uses a separate `MRD` Exchange connection, which closes before the Purview search begins. Both connections check the signed-in account and tenant and close only their own connections.
+
+Prompts show examples and lookup links where a value needs explanation. Use your own values in place of the examples:
+
+| Prompt | What to enter | Where to find it |
+| --- | --- | --- |
+| Tenant ID | The organization's GUID, such as `11111111-1111-1111-1111-111111111111`. A tenant display name or domain will not work. | [Microsoft Entra](https://entra.microsoft.com), **Entra ID > Overview > Properties > Tenant ID**. [Microsoft's lookup instructions](https://learn.microsoft.com/en-us/entra/fundamentals/how-to-find-tenant). |
+| Administrator sign-in email | Your administrator account's user principal name, such as `admin@contoso.com`. It can differ from the mailbox address. | Your account in [Microsoft Entra](https://entra.microsoft.com). The account needs the [appropriate Purview roles](https://learn.microsoft.com/en-us/purview/edisc-search-mailbox-data#before-you-begin). |
+| Existing Purview case name | The exact name of an accessible case without premium features, such as `Content Search`. | [Purview eDiscovery](https://purview.microsoft.com/ediscovery/), or **5. Browse Purview** in the toolkit. |
+| Ticket or incident number | Your incident identifier, such as `INC-1234`. | Your helpdesk. The toolkit labels evidence but does not create or update tickets. |
+| Sender email address | The message's sender address, such as `phish@example.com`. | The email's sender details, rather than its display name. |
+| UTC dates | Dates such as `2026-10-05`; the whole last day is included. Use the same first and last date for one UTC day. | Convert the message timestamp to UTC if the mail client displays local time. `ALL` at the first date searches all dates. |
+| Evidence folder | Enter to retain the displayed default, or a full path such as `C:\IncidentEvidence`. | The default is the AppData Runs folder described below. |
+| Reviewed CSV report | The extracted item-level CSV for the selected search, such as `Items.csv`. | Use **Export items report only** in Purview. [Export instructions](https://learn.microsoft.com/en-us/purview/edisc-search-export). |
+
+Mailbox selection, list navigation, report selection, run shortcuts, settings, and removal types also show one choice per line. The mailbox chooser states whether Enter selects all mailboxes or keeps a cloned run's saved scope. Purview search details use descriptive labels and offer copying only when the conditions are supported.
 
 ## Remembered settings
+
+When you launch the menu without a settings file, the toolkit asks whether to set up saved defaults. Setup runs locally and does not sign in. Enter accepts the AppData evidence folder and the default case name. You can enter your tenant ID and administrator email, or leave both blank until searching. Choose **N** to skip setup; Search and Browse Purview then prompt for missing tenant/account details. `-NoSavedSettings` and `-WhatIf` skip this startup setup. An existing settings file is never automatically replaced.
 
 After a successfully completed Search or Clone, the tool remembers these defaults in **`%LOCALAPPDATA%\M365-EmailRemediationToolkit\settings.json`** for your Windows account:
 
@@ -58,6 +80,7 @@ Updates use a file lock, a validated temporary file, atomic replacement, and a u
 - A licensed administrator with **Compliance Search** or eDiscovery Manager permissions to search, plus the Purview **Search And Purge** role to remove messages. The Exchange Online and Purview Organization Management groups are separate. [Purview permissions](https://learn.microsoft.com/en-us/purview/edisc-permissions)
 - An existing case without premium features. The default is **Content Search**. Use `-CaseName` to select a different existing standard case. The script does not create cases, enable premium features, change roles, or create holds. [Case parameter](https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/new-compliancesearch?view=exchange-ps#-case)
 - Directory selection and explicit mailbox validation also require Exchange permission to read mailboxes, recipients, and the selected group's membership. The toolkit uses `Get-Mailbox`, `Get-Recipient`, `Get-DistributionGroupMember`, and `Get-UnifiedGroupLinks` through its prefixed connection. It requests no Microsoft Graph consent and changes no directory objects. All-mailbox searches do not need this directory connection.
+- Purview browsing requires permission to read standard cases and their searches. It checks only the read commands on its connection. Case membership and role assignments determine which cases are visible. Premium cases are outside this browser's scope. [Case retrieval](https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/get-compliancecase?view=exchange-ps), [standard search retrieval](https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/get-compliancesearch?view=exchange-ps#-case)
 
 If the required module is missing, install it yourself:
 
@@ -170,6 +193,24 @@ The CSV is validated as a non-empty metadata table, copied into the run folder, 
 
 Status saves the provider's latest search/action results and generates a ticket summary. A completed action reports server processing status. To verify removal from normal mailbox folders, run a fresh search/report in Purview and inspect message locations. Retained Recoverable Items copies can still appear in search results.
 
+## Browse existing Purview cases and searches
+
+Choose **5. Browse Purview** in the menu, or run:
+
+```powershell
+.\Invoke-MailRemediation.ps1 -Mode BrowsePurview
+```
+
+The browser confirms the expected tenant/account when opened from the menu, connects using its own checked Purview session, and lists the standard cases your account can access. Select a case, then a search. Both lists support paging and `/text` filtering. An explicit `-CaseName 'Incident case'` limits the case list; the saved default case does not hide other cases.
+
+Search summaries show name and status. Selecting a search retrieves its query, item count, size, binding count, mailbox scope, exclusions, and provider errors. Missing counts are shown as **not returned**, never assumed to be zero. Microsoft omits several properties from summary responses, so the toolkit fetches the selected search by its identity. This is metadata browsing; matching email content still requires review in Purview or its exported report. [Search detail behavior](https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/get-compliancesearch?view=exchange-ps#-identity)
+
+From the details, **P** opens the eDiscovery landing page. **C** offers a new remediation run for supported conditions. Enter goes back to searches; canceling the search picker goes back to cases, and canceling the case picker returns to the main menu. Browsing does not change searches, create evidence, save settings, or remove messages. `-WhatIf` previews the browser without a sign-in or any service calls.
+
+Automatic copying supports one sender address, optional `kind:email`, an optional quoted subject phrase, and optional paired `received>=yyyy-MM-dd` / `received<yyyy-MM-dd` dates, joined by `AND`. Individual terms can have parentheses. The scope must be `All` or explicit mailbox email addresses. Mixed SharePoint/OneDrive scopes, exclusions, hold scopes, unknown locations, unsupported conditions, `OR`, `NOT`, and unrecognized query syntax remain viewable but cannot be copied automatically. No conditions are silently dropped. Use Search to enter reviewed criteria manually when copying is unavailable.
+
+For a supported copy, enter the new ticket, review the original query and proposed email-only query and scope, then type **`CREATE <ticket>`**. The browsing session closes before the normal Search workflow starts. The toolkit creates a separate search and records the original case, search name, query, scope, observed status/count, and timestamp in `run.json` under `ImportedFrom`. It does not edit or adopt the original search. The new run has fresh results and requires a freshly reviewed report and all normal Remove confirmations. To adjust its criteria further, clone the new saved run.
+
 ## Clone and adjust a saved search
 
 Choose **4. Clone** in the menu. Select a run, then accept or change its ticket, sender, subject phrase, dates, mailbox scope, and existing case. Enter keeps a value, including the existing fixed mailbox list at the scope chooser. Type `NONE` to clear an optional subject or ticket URL; type `ALL` to remove date bounds. Choose All mailboxes in the scope chooser to widen mailbox scope.
@@ -189,13 +230,14 @@ Run without `-WhatIf` to create the new search. Unspecified filters, ticket info
 
 The clone receives a new search name, run ID, results, and evidence folder. Its `ClonedFrom` record and ticket summary identify the original run. Original searches and files are preserved. Reports, review attestations, and purge actions are not inherited; removal requires a new report review and confirmation for the clone. Cloning never submits removal. If an earlier submission outcome is uncertain, use Status on that original run before deciding on another removal.
 
-Only this tool's saved runs can be cloned. Existing searches created elsewhere in Purview are outside this feature. Purview itself supports query and scope changes through [Set-ComplianceSearch](https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/set-compliancesearch?view=exchange-ps). This tool creates a new search to preserve the recorded criteria and evidence. Editing a tool-owned search externally causes its original removal checks to reject the changed search.
+Clone operates on this tool's saved runs. For a search created elsewhere, use **Browse Purview** to create a new remediation run from supported criteria. Purview itself supports query and scope changes through [Set-ComplianceSearch](https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/set-compliancesearch?view=exchange-ps). This tool creates a new search to preserve the recorded criteria and evidence. Editing a tool-owned search externally causes its original removal checks to reject the changed search.
 
 ## Parameters worth knowing
 
 | Parameter | Purpose |
 | --- | --- |
 | `-Mode Clone` | Create a new search from a saved run with specified filter changes. |
+| `-Mode BrowsePurview` | Browse accessible standard cases/searches and optionally create a fresh remediation run from supported criteria. |
 | `-Ticket`, `-TicketUrl` | Incident identifier and optional HTTPS link; the tool does not contact your ticket system. |
 | `-TenantId` | Expected tenant GUID for Search; Remove and Status use the saved run's tenant. |
 | `-SenderAddress`, `-Subject` | Sender filter and optional subject phrase. No arbitrary KQL is accepted. |
@@ -217,7 +259,7 @@ Only this tool's saved runs can be cloned. Existing searches created elsewhere i
 
 Each run contains:
 
-- `run.json`: ticket, tenant, criteria, scope, search name, links, and any resolved directory/group membership snapshot.
+- `run.json`: ticket, tenant, criteria, scope, search name, links, any resolved directory/group membership snapshot, and provenance when copied from a Purview search.
 - `search.json`: original completed search results.
 - `location-counts.csv`: parsed per-location totals when available.
 - `events.jsonl`: timestamps, administrator identity, stages, review attestation, report hash, and errors.
@@ -238,11 +280,11 @@ This is an incident-response tool, not a mailbox cleanup or retention tool. Micr
 
 The tool blocks removal if parsed location totals do not cover the search's total count or if a location exceeds ten matches. Provider statistics are text and can change format; an unfamiliar format is blocked rather than assumed safe. Narrow the date, subject, or mailbox scope when needed. There is no automatic loop to work around the limit.
 
-Only indexed email items are targeted. Raw KQL, message-ID filters, sensitivity-label filters, Teams content, SharePoint, OneDrive, arbitrary pre-existing searches, and premium Graph purging are outside this tool's scope. Message-ID conditions are specifically unsuitable for non-premium search-and-delete. [Supported workflow](https://learn.microsoft.com/en-us/purview/edisc-search-mailbox-data)
+Only indexed email items are targeted. Raw KQL execution, message-ID filters, sensitivity-label filters, Teams content, SharePoint, OneDrive, direct purging of arbitrary pre-existing searches, and premium Graph purging are outside this tool's scope. Existing standard searches can be browsed and supported criteria copied into a new reviewed run. Message-ID conditions are specifically unsuitable for non-premium search-and-delete. [Supported workflow](https://learn.microsoft.com/en-us/purview/edisc-search-mailbox-data)
 
 ## Offline validation
 
-The tests replace every Microsoft 365 operation with a mock. They verify query construction, scope/ownership checks, result changes, confirmation gates, wrong-tenant checks, existing-action handling, ambiguous submission outcomes, and offline previews. Toolkit regressions also cover zero/one/many runs, chronological paging and filtering, settings compatibility/reset, interrupted search recovery, directory selection, nested groups/cycles, exclusions, fixed mailbox snapshots, file selection, clipboard/browser actions, and menu recovery. They do not verify live tenant permissions, portal export formats, actual removal, or current service responses. The Windows file dialog itself is not exercised by the mocked tests.
+The tests replace every Microsoft 365 operation with a mock. They verify query construction, scope/ownership checks, result changes, confirmation gates, wrong-tenant checks, existing-action handling, ambiguous submission outcomes, and offline previews. Toolkit regressions also cover zero/one/many runs, chronological paging and filtering, settings compatibility/reset, first-run setup with strict checking, interrupted search recovery, directory selection, nested groups/cycles, exclusions, fixed mailbox snapshots, file selection, clipboard/browser actions, and menu recovery. Purview browser fixtures cover case/search retrieval, missing or ambiguous identities, read-only command checks, supported query conversion, refusal to discard unsupported conditions, original-search provenance, and fresh runs without inherited removal approval. They do not verify live tenant permissions, portal export formats, actual removal, or current service responses. The Windows file dialog itself is not exercised by the mocked tests.
 
 With Pester 5.3 or later installed:
 
@@ -257,4 +299,4 @@ Invoke-Pester -Configuration $configuration
 
 The registry fixture is disabled because these tests do not use the Windows registry. For static analysis, `PSAvoidUsingWriteHost` can be excluded because console messages are part of the interactive interface.
 
-Validation on October 6, 2026, with PowerShell 7.6.6: all 103 mocked tests passed from the final project folder, all five PowerShell files parsed, production static analysis returned no warnings or errors with the intentional console-output rule excluded, and All/Group entry-point previews passed offline. No tenant connection or live purge was performed. Start with a reviewed search scoped to a pilot mailbox before broad use, including a check of live rerun status/identifiers, scope values returned by Purview, and report export format.
+Validation on October 7, 2026, with PowerShell 7.6.6: all 150 mocked tests passed from the final project folder, all seven PowerShell files parsed, and production static analysis returned no warnings or errors with the intentional console-output rule excluded. Actual script launches with temporary local settings confirmed that first-run setup saves defaults and a subsequent launch skips setup. Console checks exercised setup and settings menus, GUID/date corrections, a Search preview, mailbox paste and multiple selection, run shortcuts, report cancellation, and supported/view-only Purview search actions using simulated input and search data. The BrowsePurview entry-point preview passed offline. No tenant connection or live purge was performed. Start with a reviewed search scoped to a pilot mailbox before broad use, including a check of live case/search visibility, rerun status/identifiers, scope values returned by Purview, and report export format.
