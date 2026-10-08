@@ -1,45 +1,6 @@
-# Exchange directory access is optional for All and required for explicit scopes.
-function Test-MRCompatibility {
-    param([version]$ModuleVersion, [version]$PowerShellVersion = $PSVersionTable.PSVersion)
-    if ($ModuleVersion -lt [version]'3.9.0') { throw 'ExchangeOnlineManagement 3.9.0 or later is required.' }
-    $minimum = if ($ModuleVersion -ge [version]'3.10.0') { [version]'7.6.0' } else { [version]'7.4.0' }
-    if ($PowerShellVersion -lt $minimum) { throw "ExchangeOnlineManagement $ModuleVersion requires PowerShell $minimum or later. This session is $PowerShellVersion. Open a compatible PowerShell session." }
-}
-
-function Import-MRExchangeModule {
-    $loaded = @(Get-Module ExchangeOnlineManagement)
-    if ($loaded.Count -gt 1) { throw 'Multiple ExchangeOnlineManagement versions are loaded. Open a fresh PowerShell session.' }
-    if ($loaded.Count -and $loaded[0].Version -lt [version]'3.9.0') { throw 'An older ExchangeOnlineManagement module is loaded. Open a fresh PowerShell session with version 3.9.0 or later.' }
-    $selected = if ($loaded.Count) { $loaded[0] } else {
-        $compatible = @(Get-Module -ListAvailable ExchangeOnlineManagement | Where-Object {
-            $_.Version -ge [version]'3.9.0' -and ($_.Version -lt [version]'3.10.0' -or $PSVersionTable.PSVersion -ge [version]'7.6.0')
-        } | Sort-Object Version -Descending)
-        if (-not $compatible.Count) { throw 'No compatible ExchangeOnlineManagement module is installed. Install version 3.9.x for PowerShell 7.4+, or 3.10+ for PowerShell 7.6+.' }
-        $compatible[0]
-    }
-    Test-MRCompatibility -ModuleVersion $selected.Version
-    Import-Module ExchangeOnlineManagement -RequiredVersion $selected.Version -Global -ErrorAction Stop
-}
-
-function Connect-MRDirectory {
-    param([string]$UserPrincipalName, [string]$TenantId)
-    $upn = Get-MREmail $UserPrincipalName; $expected = [guid]::Parse($TenantId)
-    Import-MRExchangeModule
-    if (@(Get-ConnectionInformation -ModulePrefix MRD -ErrorAction Stop).Count) { throw 'An MRD directory connection already exists. Use a fresh PowerShell session.' }
-    try {
-        Write-Host 'The sign-in window may open behind your current app. Check behind it if you do not see the window.' -ForegroundColor Yellow
-        Connect-ExchangeOnline -UserPrincipalName $upn -Prefix MRD -ShowBanner:$false `
-            -CommandName @('Get-Mailbox', 'Get-Recipient', 'Get-DistributionGroupMember', 'Get-UnifiedGroupLinks') -ErrorAction Stop
-        $connections = @(Get-ConnectionInformation -ModulePrefix MRD -ErrorAction Stop)
-        if ($connections.Count -ne 1 -or $connections[0].IsEopSession -or $connections[0].State -ne 'Connected' -or
-            [guid]$connections[0].TenantID -ne $expected -or $connections[0].UserPrincipalName -ine $upn) {
-            throw 'The directory connection does not match the expected tenant and administrator.'
-        }
-        foreach ($command in @('Get-MRDMailbox', 'Get-MRDRecipient')) { $null = Get-Command $command -ErrorAction Stop }
-        return $connections[0]
-    }
-    catch { Disconnect-ExchangeOnline -ModulePrefix MRD -Confirm:$false -ErrorAction SilentlyContinue | Out-Null; throw }
-}
+# Mailbox and group lookups through the shared Exchange Online connection (prefix MRD).
+# All-mailbox searches do not need the directory.
+$script:MRDirectoryCache = $null
 
 function Get-MRDirectoryData {
     $mailboxes = @(Get-MRDMailbox -ResultSize Unlimited -RecipientTypeDetails @('UserMailbox', 'SharedMailbox', 'RoomMailbox', 'EquipmentMailbox') -ErrorAction Stop)
@@ -60,17 +21,41 @@ function Get-MRDirectoryData {
     return [pscustomobject]@{ Mailboxes = $mailboxEntries; Groups = $groupEntries }
 }
 
+function Get-MRDirectory {
+    # The list is kept for 15 minutes per tenant and account; a new sign-in clears it.
+    param([string]$TenantId, [string]$UserPrincipalName)
+    $key = "$TenantId|$UserPrincipalName".ToLowerInvariant()
+    $cache = $script:MRDirectoryCache
+    if ($cache -and $cache.Key -eq $key -and ([datetime]::UtcNow - $cache.LoadedUtc).TotalMinutes -lt 15) { return $cache.Data }
+    Write-Host 'Loading the list of mailboxes and groups. This can take a moment.'
+    $data = Get-MRDirectoryData
+    $script:MRDirectoryCache = [pscustomobject]@{ Key = $key; LoadedUtc = [datetime]::UtcNow; Data = $data }
+    Write-MRLog 'DirectoryLoaded' @{ Mailboxes = @($data.Mailboxes).Count; Groups = @($data.Groups).Count }
+    return $data
+}
+
+function Get-MRMailboxLookup {
+    # Maps every primary address and alias to the mailbox's primary address. Microsoft 365
+    # group mailboxes are added only when asked, for matching message trace recipients.
+    param($Directory, [switch]$IncludeGroupMailboxes)
+    $lookup = @{}
+    foreach ($mailbox in @($Directory.Mailboxes)) {
+        $lookup[$mailbox.Key] = $mailbox.Key
+        foreach ($alias in @($mailbox.Aliases)) { if (-not $lookup.ContainsKey($alias)) { $lookup[$alias] = $mailbox.Key } }
+    }
+    if ($IncludeGroupMailboxes) {
+        foreach ($group in @($Directory.Groups | Where-Object Type -EQ 'GroupMailbox')) { if (-not $lookup.ContainsKey($group.Key)) { $lookup[$group.Key] = $group.Key } }
+    }
+    return $lookup
+}
+
 function Resolve-MRGroupMember {
     param($Group, $Directory)
     $queue = [collections.generic.Queue[object]]::new(); $queue.Enqueue($Group)
     $visited = [collections.generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $addresses = [collections.generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $excluded = [collections.generic.List[object]]::new()
-    $lookup = @{}; $groupLookup = @{}
-    foreach ($mailbox in $Directory.Mailboxes) {
-        $lookup[$mailbox.Key] = $mailbox.Key
-        foreach ($alias in $mailbox.Aliases) { $lookup[$alias] = $mailbox.Key }
-    }
+    $lookup = Get-MRMailboxLookup $Directory; $groupLookup = @{}
     foreach ($entry in $Directory.Groups) { $groupLookup[$entry.Key] = $entry }
     while ($queue.Count) {
         $current = $queue.Dequeue()
@@ -96,56 +81,59 @@ function Resolve-MRGroupMember {
     return [pscustomobject]@{ Mailboxes = @($addresses | Sort-Object); ExpandedGroups = @($visited | Sort-Object); ExcludedMembers = @($excluded.ToArray()) }
 }
 
+function Confirm-MRMailboxList {
+    param([string[]]$Mailboxes, $Metadata)
+    Write-Host "`nThe search will look in these $($Mailboxes.Count) mailbox(es):"
+    $Mailboxes | Select-Object -First 25 | ForEach-Object { Write-Host "  $_" }
+    if ($Mailboxes.Count -gt 25) { Write-Host "  ...and $($Mailboxes.Count - 25) more. The full list is saved with the run." }
+    if (@($Metadata.ExcludedMembers).Count) {
+        Write-Warning "$(@($Metadata.ExcludedMembers).Count) group member(s) are not mailboxes here and are left out:"
+        $Metadata.ExcludedMembers | ForEach-Object { Write-Host "  $($_.Address) ($($_.Type))" }
+    }
+    while ($true) {
+        $answer = Read-MRAnswer "Press Enter to use these $($Mailboxes.Count) mailbox(es), or B to choose again"
+        if (-not $answer.Trim()) { return }
+        Write-MRText Retry 'Press Enter to use these mailboxes, or type B to choose different ones.'
+    }
+}
+
 function Resolve-MRMailboxScope {
     param([hashtable]$Options)
-    if ($Options.MailboxMode -eq 'All' -or ($Options.MailboxMode -eq 'Paste' -and $Options.Mailboxes.Count -eq 1 -and $Options.Mailboxes[0] -ieq 'All')) {
+    if ($Options.MailboxMode -eq 'All' -or ($Options.MailboxMode -eq 'Paste' -and @($Options.Mailboxes).Count -eq 1 -and $Options.Mailboxes[0] -ieq 'All')) {
         return [pscustomobject]@{ Mailboxes = @('All'); Metadata = [pscustomobject]@{ Mode = 'All' } }
     }
-    $connection = $null
-    try {
-        $connection = Connect-MRDirectory $Options.UserPrincipalName $Options.TenantId
-        Write-Host 'Loading mailbox and group directory. This can take a moment.'
-        $directory = Get-MRDirectoryData
-        $metadata = [ordered]@{ Mode = $Options.MailboxMode; ResolvedUtc = [datetimeoffset]::UtcNow.ToString('o'); ExpandedGroups = @(); ExcludedMembers = @() }
-        switch ($Options.MailboxMode) {
-            'Select' {
-                $selected = @(Select-MRList -Entries $directory.Mailboxes -Title 'Select individual mailboxes' -Multiple)
-                $scope = @($selected.Key | Sort-Object -Unique)
-            }
-            'Group' {
-                if ($Options.GroupAddress) {
-                    $address = Get-MREmail $Options.GroupAddress
-                    $groups = @($directory.Groups | Where-Object Key -EQ $address)
-                    if ($groups.Count -ne 1) { throw 'The group address did not resolve to one supported group. Use its primary email address or the group picker.' }
-                    $group = $groups[0]
-                } else { $group = Select-MRList -Entries $directory.Groups -Title 'Select a distribution, mail-enabled security, or Microsoft 365 group' }
-                $resolved = Resolve-MRGroupMember $group $directory
-                $scope = @($resolved.Mailboxes)
-                $metadata.Group = [pscustomobject]@{ Address = $group.Key; DisplayName = $group.DisplayName; Type = $group.Type }
-                $metadata.ExpandedGroups = $resolved.ExpandedGroups; $metadata.ExcludedMembers = $resolved.ExcludedMembers
-            }
-            'Paste' {
-                $addresses = @(Get-MRScope $Options.Mailboxes); $lookup = @{}
-                foreach ($mailbox in $directory.Mailboxes) { $lookup[$mailbox.Key] = $mailbox.Key; foreach ($alias in $mailbox.Aliases) { $lookup[$alias] = $mailbox.Key } }
-                $scope = @(foreach ($address in $addresses) {
-                    if (-not $lookup.ContainsKey($address)) { throw "'$address' is not an accessible individual mailbox. Use Members of a group for group addresses." }
-                    $lookup[$address]
-                })
-                $scope = @($scope | Sort-Object -Unique)
-            }
+    $null = Connect-MRExchange $Options.UserPrincipalName $Options.TenantId
+    $directory = Get-MRDirectory $Options.TenantId $Options.UserPrincipalName
+    $metadata = [ordered]@{ Mode = $Options.MailboxMode; ResolvedUtc = [datetimeoffset]::UtcNow.ToString('o'); ExpandedGroups = @(); ExcludedMembers = @() }
+    switch ($Options.MailboxMode) {
+        'Select' {
+            $selected = @(Select-MRList -Entries $directory.Mailboxes -Title 'Pick the mailboxes to search' -Multiple)
+            $scope = @($selected.Key | Sort-Object -Unique)
         }
-        if (-not $scope.Count) { throw 'Select at least one mailbox.' }
-        $metadata.ResolvedMailboxes = $scope
-        Write-Host "`nResolved scope: $($scope.Count) individual mailboxes."
-        $scope | ForEach-Object { Write-Host "  $_" }
-        if ($metadata.ExcludedMembers.Count) {
-            Write-Warning "$($metadata.ExcludedMembers.Count) non-mailbox members were excluded."
-            $metadata.ExcludedMembers | ForEach-Object { Write-Host "  $($_.Address): $($_.Reason)" }
+        'Group' {
+            if ($Options.GroupAddress) {
+                $address = Get-MREmail $Options.GroupAddress
+                $groups = @($directory.Groups | Where-Object Key -EQ $address)
+                if ($groups.Count -ne 1) { throw 'The group address did not match one supported group. Use its main email address or pick it from the list.' }
+                $group = $groups[0]
+            } else { $group = Select-MRList -Entries $directory.Groups -Title 'Pick the group (distribution list, mail-enabled security group, or Microsoft 365 group)' }
+            $resolved = Resolve-MRGroupMember $group $directory
+            $scope = @($resolved.Mailboxes)
+            $metadata.Group = [pscustomobject]@{ Address = $group.Key; DisplayName = $group.DisplayName; Type = $group.Type }
+            $metadata.ExpandedGroups = $resolved.ExpandedGroups; $metadata.ExcludedMembers = $resolved.ExcludedMembers
         }
-        if ($Options.Interactive -or $Options.MailboxMode -in @('Select', 'Group')) {
-            if ((Read-MRAnswer "Type USE $($scope.Count) to accept this exact mailbox list, or Enter to cancel") -cne "USE $($scope.Count)") { throw [OperationCanceledException]::new('Mailbox selection canceled.') }
+        'Paste' {
+            $addresses = @(Get-MRScope $Options.Mailboxes); $lookup = Get-MRMailboxLookup $directory
+            $scope = @(foreach ($address in $addresses) {
+                if (-not $lookup.ContainsKey($address)) { throw "'$address' is not a mailbox the toolkit can search. For a group address, choose the group option instead." }
+                $lookup[$address]
+            })
+            $scope = @($scope | Sort-Object -Unique)
         }
-        return [pscustomobject]@{ Mailboxes = $scope; Metadata = [pscustomobject]$metadata }
     }
-    finally { if ($connection) { Disconnect-ExchangeOnline -ModulePrefix MRD -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } }
+    if (-not $scope.Count) { throw 'Select at least one mailbox.' }
+    $metadata.ResolvedMailboxes = $scope
+    Write-MRLog 'MailboxesResolved' @{ Mode = $Options.MailboxMode; Count = $scope.Count; Group = $(if ($metadata.Contains('Group')) { $metadata.Group.Address } else { '' }) }
+    if ($Options.Interactive -or $Options.MailboxMode -in @('Select', 'Group')) { Confirm-MRMailboxList $scope ([pscustomobject]$metadata) }
+    return [pscustomobject]@{ Mailboxes = $scope; Metadata = [pscustomobject]$metadata }
 }
