@@ -68,7 +68,7 @@ function Invoke-MRPromptSequence {
 }
 
 function Write-MRPromptHelp {
-    param([ValidateSet('TenantId', 'Administrator', 'Case', 'EvidenceFolder', 'Ticket', 'TicketUrl', 'Sender', 'Subject', 'Dates', 'Mailboxes', 'Report', 'Removal')][string]$Topic)
+    param([ValidateSet('TenantId', 'Administrator', 'Case', 'NewCase', 'EvidenceFolder', 'Ticket', 'TicketUrl', 'Sender', 'Subject', 'Dates', 'Mailboxes', 'Report', 'Removal')][string]$Topic)
     Write-Host ''
     switch ($Topic) {
         'TenantId' {
@@ -77,13 +77,20 @@ function Write-MRPromptHelp {
         }
         'Administrator' {
             Write-Host 'The email address you use to sign in as an administrator, such as admin@contoso.com.'
-            Write-Host 'The account needs the Purview eDiscovery Manager role (or Compliance Search) to search, and Search And Purge to delete.'
+            Write-Host 'The account needs the Purview eDiscovery Manager role (or Compliance Search) to search, Case Management (part of eDiscovery Manager) to create cases, and Search And Purge to delete.'
             Write-Host 'Role details: https://learn.microsoft.com/en-us/purview/edisc-search-mailbox-data#before-you-begin'
         }
         'Case' {
             Write-Host 'A case is a folder in Microsoft Purview that holds the searches for one incident.'
-            Write-Host 'Pick the case for this incident. To make a new one, open https://purview.microsoft.com/ediscovery/ > Cases > Create case (leave premium features off), then come back.'
+            Write-Host '1 lists your cases, Active ones first. In the list, L shows closed cases, /word finds a case by name, and C creates a new case instead.'
+            Write-Host '2 creates a new case without showing the list. It is created when you accept the review, so going back or canceling first leaves nothing in Purview.'
             Write-Host "The built-in Content Search case is not offered: searches the toolkit creates there do not appear in the Purview portal."
+        }
+        'NewCase' {
+            Write-Host 'Case names are unique across your organization and can be up to 64 characters.'
+            Write-Host 'Include the ticket number, such as "Ticket #5678 Phishing", so the next question can suggest it.'
+            Write-Host 'If a case with this name already exists, the toolkit offers to use it. The new case has no premium features.'
+            Write-Host 'Other admins see it only if they are eDiscovery Administrators or you add them to the case in the portal.'
         }
         'EvidenceFolder' {
             Write-Host 'Each search gets its own folder here with its records, message trace lists, and ticket summaries.'
@@ -184,7 +191,7 @@ function Get-MRRunIndex {
 
 function Select-MRList {
     param([object[]]$Entries, [string]$Title, [switch]$Multiple, [switch]$AllowPath,
-        [ValidateSet('', 'Active', 'Closed', 'All')][string]$CaseStatus = '', [switch]$AllowNewSearch)
+        [ValidateSet('', 'Active', 'Closed', 'All')][string]$CaseStatus = '', [switch]$AllowNewSearch, [switch]$AllowNewCase)
     $Entries = @($Entries); $filter = ''; $page = 0; $size = 15
     $chosen = [collections.generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     while ($true) {
@@ -204,7 +211,8 @@ function Select-MRList {
             Write-Host "[$($index + 1)] $marker$($visible[$index].Label -replace '[\r\n\x00-\x1f]', ' ')"
         }
         if (-not $visible.Count) {
-            if ($CaseStatus) { Write-Host 'No cases match. Show other cases (A, L, or T), clear the filter with /, or go back with B.' }
+            if ($CaseStatus -and $AllowNewCase) { Write-Host 'No cases match. Show other cases (A, L, or T), clear the filter with /, create a new case with C, or go back with B.' }
+            elseif ($CaseStatus) { Write-Host 'No cases match. Show other cases (A, L, or T), clear the filter with /, or go back with B.' }
             elseif ($AllowNewSearch) { Write-Host 'No searches match. Start a new search with S, clear the filter with /, or go back with B.' }
             else { Write-Host 'Nothing matches. Clear the filter with /, or go back with B.' }
         }
@@ -216,11 +224,13 @@ function Select-MRList {
         Write-Host '[/word] Show only entries containing a word (example: /smith); / alone shows everything'
         if ($AllowNewSearch) { Write-Host '[S] Start a new search in this case' }
         if ($CaseStatus) { Write-Host '[A] Active cases   [L] Closed cases   [T] All cases' }
+        if ($AllowNewCase) { Write-Host '[C] Create a new case instead' }
         if ($pages -gt 1) { Write-Host '[N] Next page   [P] Previous page' }
         if ($AllowPath) { Write-Host '[Folder path] Open a run folder by its full path (example: C:\IncidentEvidence\run-folder)' }
         Write-Host '[B] Back'
         $answer = (Read-MRAnswer 'Your choice').Trim().Trim('"').Trim("'")
         if ($AllowNewSearch -and $answer -ieq 'S') { return [pscustomobject]@{ Action = 'NewSearch' } }
+        if ($AllowNewCase -and $answer -ieq 'C') { return [pscustomobject]@{ Action = 'NewCase' } }
         if ($CaseStatus -and $answer -in @('A', 'L', 'T')) {
             $CaseStatus = switch ($answer) { 'A' { 'Active' } 'L' { 'Closed' } 'T' { 'All' } }
             $page = 0; continue

@@ -61,6 +61,7 @@ function Get-MRSearchStep {
         @{ Name = 'Dates'; Title = 'Dates the message arrived'; Run = { param($s) Read-MRDateStep $s } }
         @{ Name = 'Mailboxes'; Title = 'Mailboxes to search'; Run = { param($s) Read-MRMailboxStep $s } }
         @{ Name = 'Review'; Title = 'Review before creating the search'; Run = { param($s) Read-MRSearchReview $s } }
+        @{ Name = 'CreateCase'; Title = 'Create the case'; Auto = $true; Skip = { param($s) -not $s['NewCase'] -or $s['Offline'] }; Run = { param($s) Invoke-MRCaseCreationStep $s } }
     )
 }
 
@@ -117,7 +118,23 @@ function Read-MRCaseStep {
         }
         Write-Host "The original case '$preferred' is not available or not Active. Choose a case."
     }
-    $State.CaseName = Select-MRPurviewCaseName -PreferredCase $preferred
+    $choice = Read-MRCaseChoice -PreferredCase $preferred -CurrentCase ([string]$State['CaseName']) -CurrentIsNew ([bool]$State['NewCase'])
+    $State.CaseName = $choice.CaseName; $State.NewCase = $choice.NewCase
+}
+
+function Invoke-MRCaseCreationStep {
+    # Runs after the review is accepted. If Purview refuses, the review opens again with
+    # every answer kept, so the case can be changed or the creation tried again.
+    param([hashtable]$State)
+    try { $created = New-MRPurviewCase -CaseName $State.CaseName -Ticket $State.Ticket }
+    catch [OperationCanceledException] { throw }
+    catch {
+        Write-MRText Failure "The case was not created. $($_.Exception.Message)"
+        Write-Host 'Change the case on the review screen, or press Enter there to try again.'
+        return 'Review'
+    }
+    $State.NewCase = $false
+    if ($created) { $State.CaseCreatedUtc = [datetimeoffset]::UtcNow.ToString('o') }
 }
 
 function Get-MRSuggestedTicket {
@@ -252,8 +269,12 @@ function Format-MRMailboxSummary {
 function Read-MRSearchReview {
     param([hashtable]$State)
     $dates = if ($State.AllDates) { 'All dates' } else { "$($State.ReceivedFrom) to $($State.ReceivedThrough) (UTC, both days included)" }
+    $case = if (-not $State.CaseName) { '(chosen after signing in)' }
+        elseif ($State['NewCase']) { "$($State.CaseName) (new: created when you press Enter)" }
+        elseif ($State['CreateCase']) { "$($State.CaseName) (created if it does not exist yet)" }
+        else { $State.CaseName }
     $items = @(
-        @{ Step = 'Case'; Label = 'Case'; Value = $(if ($State.CaseName) { $State.CaseName } else { '(chosen after signing in)' }); Editable = -not ($State['CaseLocked'] -or $State['Offline']) }
+        @{ Step = 'Case'; Label = 'Case'; Value = $case; Editable = -not ($State['CaseLocked'] -or $State['Offline']) }
         @{ Step = 'Ticket'; Label = 'Ticket'; Value = $State.Ticket; Editable = $true }
         @{ Step = 'TicketUrl'; Label = 'Ticket link'; Value = $(if ($State.TicketUrl) { $State.TicketUrl } else { '(none)' }); Editable = $true }
         @{ Step = 'Sender'; Label = 'Sender'; Value = $State.SenderAddress; Editable = $true }
@@ -268,8 +289,9 @@ function Read-MRSearchReview {
     }
     Write-Host 'The search finds email from this sender in these mailboxes and dates. Nothing is deleted.'
     $missing = @($items | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object { $_.Label })
+    $create = if ($State['NewCase']) { 'create the case and the search' } else { 'create the search' }
     while ($true) {
-        $answer = (Read-MRAnswer 'Press Enter to create the search, type a number to change an item, or B to go back').Trim()
+        $answer = (Read-MRAnswer "Press Enter to $create, type a number to change an item, or B to go back").Trim()
         if (-not $answer) {
             if ($missing.Count) { Write-MRText Retry "Fill in: $($missing -join ', ')."; continue }
             return $null
@@ -284,7 +306,8 @@ function Resolve-MRSearchPlan {
     # Command-line searches ask only for required values that were not supplied.
     param([hashtable]$Options)
     # Check the case before anything signs in, so a bad case name fails fast.
-    if ([string]::IsNullOrWhiteSpace($Options.CaseName)) { throw 'Name an existing Purview case with -CaseName.' }
+    if ([string]::IsNullOrWhiteSpace($Options.CaseName)) { throw 'Name a Purview case with -CaseName. Add -CreateCase to create it if it does not exist.' }
+    if ($Options.CreateCase) { $Options.CaseName = ConvertTo-MRCaseName $Options.CaseName }
     if (Test-MRSystemCase $Options.CaseName) {
         if ($Options.SourceRun) { throw 'The original search used the built-in Content Search case, where new toolkit searches do not appear in the Purview portal. Add -CaseName with an incident case.' }
         throw 'The toolkit does not create searches in the built-in Content Search case, because they do not appear in the Purview portal there. Use -CaseName with an incident case.'

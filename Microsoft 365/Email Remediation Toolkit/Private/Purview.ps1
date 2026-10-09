@@ -1,5 +1,6 @@
-# Browse Purview cases and searches without changing them. New searches always go
-# through the guided Search questions and get their own evidence and review.
+# Purview cases and searches: choosing or creating the case for a new search, and browsing
+# without changing anything. New searches always go through the guided Search questions
+# and get their own evidence and review.
 function ConvertFrom-MRPurviewQuery {
     param([string]$Query)
     # Parse only this explicit grammar. Unsupported conditions must never be discarded.
@@ -91,14 +92,18 @@ function Get-MRPurviewCaseEntry {
 }
 
 function Select-MRPurviewCaseName {
-    param([string]$PreferredCase)
-    Write-Host 'Choose the Purview case for this incident. A case is a folder that holds the searches for one incident. Type ? for how to make a new one.'
-    $entries = @(Get-MRPurviewCaseEntry -PreferredCase $PreferredCase -ForNewSearch)
-    Write-MRLog 'CasesListed' @{ Count = $entries.Count }
-    if (-not $entries.Count) { throw 'No cases are available. Create a case without premium features in Purview (https://purview.microsoft.com/ediscovery/ > Cases > Create case), or check your case permissions, then try again.' }
+    # Returns the chosen Active case, or '' when the operator chose to create a new case
+    # instead (offered only with -AllowNewCase).
+    param([string]$PreferredCase, [object[]]$Entries, [switch]$AllowNewCase)
+    if ($null -eq $Entries) {
+        $Entries = @(Get-MRPurviewCaseEntry -PreferredCase $PreferredCase -ForNewSearch)
+        Write-MRLog 'CasesListed' @{ Count = $Entries.Count }
+    }
+    if (-not $Entries.Count) { throw 'No cases are available. Create a case without premium features in Purview (https://purview.microsoft.com/ediscovery/ > Cases > Create case), or check your case permissions, then try again.' }
     while ($true) {
-        $selected = Select-MRList -Entries $entries -Title 'Purview cases' -CaseStatus Active
-        $caseMatches = @($entries | Where-Object Key -EQ ([string]$selected.Key))
+        $selected = Select-MRList -Entries $Entries -Title 'Purview cases' -CaseStatus Active -AllowNewCase:$AllowNewCase
+        if ([string](Get-MRProperty $selected 'Action') -eq 'NewCase') { return '' }
+        $caseMatches = @($Entries | Where-Object Key -EQ ([string]$selected.Key))
         if ($caseMatches.Count -ne 1) { throw 'The selected case is missing or ambiguous. No search was created.' }
         if ($caseMatches[0].Status -ine 'Active') {
             Write-MRText Retry 'Choose an Active case. To use a closed case, reopen it in Purview first.'
@@ -107,6 +112,129 @@ function Select-MRPurviewCaseName {
         Write-Host "Case: $($caseMatches[0].Key)"
         return [string]$caseMatches[0].Key
     }
+}
+
+function Test-MRCanCreateCase {
+    # Purview offers New-ComplianceCase only to accounts with the Case Management role.
+    return [bool](Get-Command New-MRComplianceCase -ErrorAction SilentlyContinue)
+}
+
+function ConvertTo-MRCaseName {
+    # Purview case names are unique in the organization and at most 64 characters.
+    param([string]$Value)
+    $name = ([string]$Value).Trim()
+    if (-not $name) { throw 'Type a name for the new case.' }
+    if ($name.Length -gt 64) { throw "Use at most 64 characters. This name has $($name.Length)." }
+    if ($name -match '[\x00-\x1f]') { throw 'Use only printable characters in the case name.' }
+    if (Test-MRSystemCase $name) { throw 'Content Search is the name of the built-in case. Choose another name.' }
+    return $name
+}
+
+function Read-MRNewCaseName {
+    # A name that matches a case the account can see means that case: an Active one is
+    # offered for use, so a duplicate is never made by accident.
+    param([string]$Default, [object[]]$Entries)
+    while ($true) {
+        $name = Read-MRValidated 'Name for the new case' $Default { param($value) ConvertTo-MRCaseName $value } -HelpTopic NewCase `
+            -Hint 'Up to 64 characters, such as "Ticket #5678 Phishing". With the ticket number in it, the next question suggests that number. The case is created when you accept the review.'
+        $caseMatches = @($Entries | Where-Object Key -EQ $name)
+        if (-not $caseMatches.Count) { return @{ CaseName = $name; NewCase = $true } }
+        if ($caseMatches.Count -gt 1) { throw "More than one case is named '$name'. Nothing was created." }
+        $existing = $caseMatches[0]
+        if ($existing.Status -ine 'Active') {
+            Write-MRText Retry "A case named '$($existing.Key)' already exists and is $($existing.Status). Reopen it in Purview, or type another name."
+            $Default = ''; continue
+        }
+        try {
+            $use = Read-MRValidated "A case named '$($existing.Key)' already exists. Use it? (Y/N)" 'Y' { param($value) if ($value -notin @('y', 'n', 'yes', 'no')) { throw 'Type Y or N.' }; $value.Substring(0, 1).ToUpperInvariant() }
+        }
+        catch { if (-not (Test-MRBackSignal $_)) { throw }; $Default = $name; continue }
+        if ($use -eq 'Y') { return @{ CaseName = [string]$existing.Key; NewCase = $false } }
+        $Default = ''
+    }
+}
+
+function Read-MRCaseChoice {
+    # The case for a new search: an Active case from the list, or a new case that is created
+    # only when the operator accepts the review. B goes back one screen.
+    param([string]$PreferredCase, [string]$CurrentCase, [bool]$CurrentIsNew)
+    $canCreate = Test-MRCanCreateCase
+    $entries = $null
+    $screen = 'Choose'; $nameFrom = 'Choose'
+    while ($true) {
+        if ($screen -ne 'Choose' -and $null -eq $entries) {
+            $entries = @(Get-MRPurviewCaseEntry -PreferredCase $PreferredCase -ForNewSearch)
+            Write-MRLog 'CasesListed' @{ Count = $entries.Count }
+        }
+        if ($screen -eq 'List') {
+            if (-not $entries.Count -and $canCreate) {
+                Write-MRText Notice 'Your account has no cases to choose from yet, so create one.'
+                $screen = 'Name'; $nameFrom = 'Choose'; continue
+            }
+            try { $name = Select-MRPurviewCaseName -Entries $entries -AllowNewCase:$canCreate }
+            catch { if (Test-MRBackSignal $_) { $screen = 'Choose'; continue }; throw }
+            if ($name) { return @{ CaseName = $name; NewCase = $false } }
+            $screen = 'Name'; $nameFrom = 'List'; continue
+        }
+        if ($screen -eq 'Name') {
+            $default = if ($CurrentIsNew) { $CurrentCase } else { '' }
+            try { return Read-MRNewCaseName -Default $default -Entries $entries }
+            catch { if (Test-MRBackSignal $_) { $screen = $nameFrom; continue }; throw }
+        }
+        Write-Host 'Which Purview case should hold this search? A case is a folder in Purview for the searches about one incident.'
+        Write-Host '[1] Choose an existing case'
+        $unavailable = if ($canCreate) { '' } else { ' (unavailable: your account does not have the Case Management role)' }
+        Write-Host "[2] Create a new case$unavailable"
+        if ($CurrentCase) { Write-Host "[Enter] Keep $(if ($CurrentIsNew) { "the new case '$CurrentCase'" } else { "'$CurrentCase'" })" }
+        else { Write-Host '[Enter] Choose an existing case' }
+        $answer = (Read-MRAnswer 'Case').Trim()
+        if ($answer -eq '?') { Write-MRPromptHelp Case; continue }
+        if (-not $answer -and $CurrentCase) { return @{ CaseName = $CurrentCase; NewCase = $CurrentIsNew } }
+        if (-not $answer -or $answer -eq '1') { $screen = 'List'; continue }
+        if ($answer -eq '2') {
+            if ($canCreate) { $screen = 'Name'; $nameFrom = 'Choose' }
+            else { Write-MRText Retry 'Your account cannot create cases. Choose 1, or ask an admin to make the case or to give you the Case Management role.' }
+            continue
+        }
+        Write-MRText Retry 'Type 1 or 2, or press Enter.'
+    }
+}
+
+function New-MRPurviewCase {
+    # Creates the case for a new search, or uses the Active case that already has this name.
+    # Runs only once the search is about to be created, so going back or canceling earlier
+    # leaves nothing in Purview. Returns $true when it created the case.
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+    [OutputType([bool])]
+    param([string]$CaseName, [string]$Ticket)
+    $CaseName = ConvertTo-MRCaseName $CaseName
+    $existing = @(Get-MRPurviewCaseEntry -CaseName $CaseName)
+    if ($existing.Count -gt 1) { throw "More than one case is named '$CaseName'. Nothing was created." }
+    if ($existing.Count -eq 1) {
+        if ($existing[0].Status -ine 'Active') { throw "The case '$CaseName' already exists and is $($existing[0].Status). Reopen it in Purview, or use another name." }
+        Write-Host "The case '$CaseName' already exists, so the search goes there."
+        Write-MRLog 'CaseReused' @{ Case = $CaseName }
+        return $false
+    }
+    if (-not (Test-MRCanCreateCase)) { throw 'Your account cannot create Purview cases. That needs the Case Management role, which the eDiscovery Manager role group includes.' }
+    if (-not $PSCmdlet.ShouldProcess($CaseName, 'Create a Purview eDiscovery case')) { throw [OperationCanceledException]::new('Canceled. No case or search was created.') }
+    Write-MRLog 'CaseCreating' @{ Case = $CaseName; Ticket = $Ticket }
+    try { $null = New-MRComplianceCase -Name $CaseName -CaseType eDiscovery -Description "Created by the Microsoft 365 Email Remediation Toolkit for ticket $Ticket." -ErrorAction Stop }
+    catch {
+        Write-MRLog 'CaseCreateFailed' @{ Case = $CaseName; Message = $_.Exception.Message }
+        throw "Purview did not create the case '$CaseName': $($_.Exception.Message) Case names are unique across the organization, including cases you cannot see, so another name may work."
+    }
+    # Put a search only in a case Purview now lists as Active.
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $created = @(Get-MRPurviewCaseEntry -CaseName $CaseName)
+        if ($created.Count -eq 1 -and $created[0].Status -ieq 'Active') {
+            Write-MRLog 'CaseCreated' @{ Case = $CaseName; Ticket = $Ticket }
+            Write-MRText Success "Created the case '$CaseName'."
+            return $true
+        }
+        if ($attempt -lt 3) { Start-Sleep -Seconds 2 }
+    }
+    throw "Purview created the case '$CaseName' but does not list it as Active yet. No search was created. Check the case in the portal, then choose it from the case list."
 }
 
 function Show-MRPurviewSearchDetail {

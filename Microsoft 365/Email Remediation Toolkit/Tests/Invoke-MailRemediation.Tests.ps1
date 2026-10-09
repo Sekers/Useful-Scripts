@@ -94,7 +94,7 @@ Describe 'Copying a saved search' {
     It 'opens an interactive copy at the review screen and keeps its case when still available' {
         $options.Interactive = $true
         $clone = Get-MRCloneOption $run $options
-        $clone.WizardOnly | Should -Be @('Identity', 'SignIn', 'Case', 'Review')
+        $clone.WizardOnly | Should -Be @('Identity', 'SignIn', 'Case', 'Review', 'CreateCase')
         $clone.PreferredCase | Should -Be 'Incident case'
         $clone.AutoAcceptCase | Should -BeTrue
         $clone.CaseName | Should -Be ''

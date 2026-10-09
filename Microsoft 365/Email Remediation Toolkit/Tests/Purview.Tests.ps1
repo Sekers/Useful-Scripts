@@ -346,9 +346,9 @@ Describe 'Guided search from the menu' {
         Mock Wait-MRJob { $script:pickerSearch }
     }
     It 'signs in first, then asks for the case, ticket, link, sender, subject, dates, and mailboxes before the review' {
-        Set-TestAnswer @('1', 'INC-55', '', 'phish@example.com', '', '2026-10-05', '2026-10-06', '', '')
+        Set-TestAnswer @('', '1', 'INC-55', '', 'phish@example.com', '', '2026-10-05', '2026-10-06', '', '')
         Invoke-MRWorkflow -Options $options -Confirm:$false
-        $expected = @('Your choice', 'Ticket number', 'Ticket link', 'Sender email address', 'Subject words', 'First day*', 'Last day*', 'Mailboxes', 'Press Enter to create the search*')
+        $expected = @('Case', 'Your choice', 'Ticket number', 'Ticket link', 'Sender email address', 'Subject words', 'First day*', 'Last day*', 'Mailboxes', 'Press Enter to create the search*')
         $script:testPrompts.Count | Should -Be $expected.Count
         for ($index = 0; $index -lt $expected.Count; $index++) { $script:testPrompts[$index] | Should -BeLike $expected[$index] }
         (Read-MRRun $options.LastRunPath).CaseName | Should -Be 'Selected active case'
@@ -407,6 +407,162 @@ Describe 'Guided search from the menu' {
         $copy.CaseName | Should -Be 'Selected active case'
         $copy.ClonedFrom.SearchName | Should -Be $source.SearchName
         $script:testPrompts.Count | Should -Be 1
+    }
+}
+
+Describe 'Choosing or creating the case for a new search' {
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        $options = New-BrowserOption; $options.Mode = 'Search'; $options.MenuAction = $true
+        $options.NoSavedSettings = $true; $options.ExplicitParameters = @()
+        Mock Show-MRQuickAction {}; Mock Disconnect-ExchangeOnline {}; Mock Start-Sleep {}
+        Mock Connect-MRPurview { [pscustomobject]@{ UserPrincipalName = $options.UserPrincipalName; TenantID = $options.TenantId } }
+        Mock Connect-MRExchange {}
+        Mock Get-MRTraceResult { New-TestTraceResult $Run -Status Unavailable }
+        $script:cases = [collections.generic.List[object]]::new()
+        $script:cases.Add([pscustomobject]@{ Name = 'Existing active case'; Status = 'Active' })
+        $script:cases.Add([pscustomobject]@{ Name = 'Old closed case'; Status = 'Closed' })
+        Mock Get-MRComplianceCase { $script:cases.ToArray() }
+        Mock New-MRComplianceCase {
+            $script:reviewsBeforeCreation = @($script:testPrompts | Where-Object { $_ -like 'Press Enter to create*' }).Count
+            $script:cases.Add([pscustomobject]@{ Name = $Name; Status = 'Active' })
+        }
+        Mock Start-MRComplianceSearch {}; Mock New-MRComplianceSearchAction {}
+        Mock New-MRComplianceSearch {
+            $script:caseSearch = [pscustomobject]@{ Name = $Name; Description = $Description; ContentMatchQuery = $ContentMatchQuery
+                ExchangeLocation = $ExchangeLocation; SharePointLocation = @(); OneDriveLocation = @(); ExchangeLocationExclusion = @()
+                SharePointLocationExclusion = @(); HoldNames = @(); Status = 'Completed'; JobRunId = 'case job'; Items = 1; NumBindings = 1; Errors = ''
+                SuccessResults = '{Location: alice@contoso.com, Item count: 1}' }
+        }
+        Mock Wait-MRJob { $script:caseSearch }
+        $rest = @('', 'phish@example.com', '', 'ALL', '', '')
+    }
+    It 'creates a new case without showing the case list, only after the review is accepted' {
+        Set-TestAnswer (@('2', 'Ticket #7788 Phishing', '') + $rest)
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        $script:testPrompts | Should -Not -Contain 'Your choice'
+        $script:testPrompts | Should -Contain 'Ticket number [7788]'
+        @($script:testPrompts | Where-Object { $_ -like 'Press Enter to create the case and the search*' }).Count | Should -Be 1
+        $script:reviewsBeforeCreation | Should -Be 1
+        Should -Invoke New-MRComplianceCase -Times 1 -Exactly -ParameterFilter { $Name -eq 'Ticket #7788 Phishing' -and $CaseType -eq 'eDiscovery' -and $Description -like '*ticket 7788*' }
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Ticket #7788 Phishing' }
+        $run = Read-MRRun $options.LastRunPath
+        $run.CaseName | Should -Be 'Ticket #7788 Phishing'
+        Get-MRProperty $run 'CaseCreatedUtc' | Should -Not -BeNullOrEmpty
+        $events = @(Get-Content -LiteralPath (Join-Path $options.LastRunPath 'events.jsonl') | ConvertFrom-Json).Event
+        [array]::IndexOf($events, 'CaseCreated') | Should -BeLessThan ([array]::IndexOf($events, 'SearchCreating'))
+        Get-Content -LiteralPath @(Get-ChildItem $options.LastRunPath -Filter 'ticket-summary-*.txt')[0].FullName -Raw | Should -Match 'created by the toolkit'
+    }
+    It 'offers a new case from the case list, and B goes back to the list' {
+        Set-TestAnswer (@('?', '', 'C', 'B', '1', 'INC-1') + $rest)
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        @($script:testPrompts | Where-Object { $_ -eq 'Case' }).Count | Should -Be 2
+        @($script:testPrompts | Where-Object { $_ -eq 'Your choice' }).Count | Should -Be 2
+        Should -Invoke New-MRComplianceCase -Times 0
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Existing active case' }
+        (Read-MRRun $options.LastRunPath).PSObject.Properties.Name | Should -Not -Contain 'CaseCreatedUtc'
+    }
+    It 'uses an Active case with the typed name instead of making a duplicate' {
+        Set-TestAnswer (@('2', 'existing ACTIVE case', 'Y', 'INC-1') + $rest)
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        $script:testPrompts[-1] | Should -BeLike 'Press Enter to create the search*'
+        Should -Invoke New-MRComplianceCase -Times 0
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Existing active case' }
+    }
+    It 'asks for another name when the typed name belongs to a closed case' {
+        Set-TestAnswer (@('2', 'Old closed case', 'Fresh case 4455', '') + $rest)
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        Should -Invoke New-MRComplianceCase -Times 1 -Exactly -ParameterFilter { $Name -eq 'Fresh case 4455' }
+        (Read-MRRun $options.LastRunPath).Ticket | Should -Be '4455'
+    }
+    It 'leaves nothing in Purview when the search is canceled before the review' {
+        Set-TestAnswer @('2', 'Never made 1234', ':cancel')
+        { Invoke-MRWorkflow -Options $options -Confirm:$false } | Should -Throw '*Canceled*'
+        Should -Invoke New-MRComplianceCase -Times 0
+        Should -Invoke New-MRComplianceSearch -Times 0
+        Test-Path -LiteralPath $options.DataDirectory | Should -BeFalse
+    }
+    It 'keeps the new case when going back from the ticket question' {
+        Set-TestAnswer (@('2', 'Kept case 5566', 'B', '', '') + $rest)
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        @($script:testPrompts | Where-Object { $_ -eq 'Case' }).Count | Should -Be 2
+        @($script:testPrompts | Where-Object { $_ -like 'Name for the new case*' }).Count | Should -Be 1
+        Should -Invoke New-MRComplianceCase -Times 1 -Exactly -ParameterFilter { $Name -eq 'Kept case 5566' }
+    }
+    It 'opens the review again with every answer kept when Purview refuses the case, then tries again' {
+        $script:attempts = 0
+        Mock New-MRComplianceCase {
+            $script:attempts++
+            if ($script:attempts -eq 1) { throw 'A case with this name already exists.' }
+            $script:cases.Add([pscustomobject]@{ Name = $Name; Status = 'Active' })
+        }
+        Set-TestAnswer (@('2', 'Retry case 6677', '') + $rest + @(''))
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        Should -Invoke New-MRComplianceCase -Times 2 -Exactly
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Retry case 6677' }
+        (Read-MRRun $options.LastRunPath).SenderAddress | Should -Be 'phish@example.com'
+    }
+    It 'can switch to an existing case after Purview refuses the new one' {
+        Mock New-MRComplianceCase { throw 'A case with this name already exists.' }
+        Set-TestAnswer (@('2', 'Taken name 7788', '') + $rest + @('1', '1', '1', ''))
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        Should -Invoke New-MRComplianceCase -Times 1 -Exactly
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Existing active case' }
+        (Read-MRRun $options.LastRunPath).PSObject.Properties.Name | Should -Not -Contain 'CaseCreatedUtc'
+    }
+    It 'does not offer case creation to an account without the Case Management role' {
+        Mock Test-MRCanCreateCase { $false }
+        Set-TestAnswer (@('2', '', 'C', '1', 'INC-1') + $rest)
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        Should -Invoke New-MRComplianceCase -Times 0
+        Should -Invoke New-MRComplianceSearch -Times 1 -Exactly -ParameterFilter { $Case -eq 'Existing active case' }
+    }
+    It 'goes straight to naming a case when the account has none to choose from' {
+        $script:cases.Clear()
+        Set-TestAnswer (@('', 'First case 8899', '') + $rest)
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        $script:testPrompts | Should -Not -Contain 'Your choice'
+        Should -Invoke New-MRComplianceCase -Times 1 -Exactly -ParameterFilter { $Name -eq 'First case 8899' }
+    }
+    It 'creates a missing case with -CreateCase before the search, and uses it once it exists' {
+        foreach ($attempt in 1..2) {
+            $cli = New-BrowserOption; $cli.Mode = 'Search'; $cli.NoSavedSettings = $true
+            $cli.CaseName = 'Command line case'; $cli.CreateCase = $true; $cli.Ticket = 'INC-9'
+            $cli.SenderAddress = 'phish@example.com'; $cli.AllDates = $true
+            $cli.ExplicitParameters = @('Mode', 'CaseName', 'CreateCase', 'Ticket', 'SenderAddress', 'AllDates')
+            Mock Read-Host { throw "Unexpected prompt: $Prompt" }
+            Invoke-MRWorkflow -Options $cli -Confirm:$false
+            $created = Get-MRProperty (Read-MRRun $cli.LastRunPath) 'CaseCreatedUtc'
+            if ($attempt -eq 1) { $created | Should -Not -BeNullOrEmpty } else { $created | Should -BeNullOrEmpty }
+        }
+        Should -Invoke New-MRComplianceCase -Times 1 -Exactly -ParameterFilter { $Name -eq 'Command line case' }
+        Should -Invoke New-MRComplianceSearch -Times 2 -Exactly -ParameterFilter { $Case -eq 'Command line case' }
+    }
+    It 'requires -CaseName with -CreateCase, and refuses a closed case, before creating anything' {
+        $cli = New-BrowserOption; $cli.Mode = 'Search'; $cli.NoSavedSettings = $true; $cli.CreateCase = $true
+        $cli.Ticket = 'INC-9'; $cli.SenderAddress = 'phish@example.com'; $cli.AllDates = $true
+        $cli.ExplicitParameters = @('Mode', 'CreateCase')
+        { Invoke-MRWorkflow -Options $cli -Confirm:$false } | Should -Throw '*-CreateCase together with -CaseName*'
+        Should -Invoke Connect-MRPurview -Times 0
+        $cli.CaseName = 'Old closed case'; $cli.ExplicitParameters += 'CaseName'
+        { Invoke-MRWorkflow -Options $cli -Confirm:$false } | Should -Throw '*already exists and is Closed*'
+        Should -Invoke New-MRComplianceCase -Times 0; Should -Invoke New-MRComplianceSearch -Times 0
+        Test-Path -LiteralPath $cli.DataDirectory | Should -BeFalse
+    }
+    It 'stops before the search when Purview does not list the new case as Active' {
+        Mock New-MRComplianceCase {}
+        { New-MRPurviewCase -CaseName 'Slow case' -Ticket 'INC-1' -Confirm:$false } | Should -Throw '*does not list it as Active yet*'
+        Should -Invoke Get-MRComplianceCase -Times 4 -Exactly
+        Should -Invoke Start-Sleep -Times 2 -Exactly
+    }
+    It 'checks new case names: <Value>' -ForEach @(
+        @{ Value = ('x' * 65); Message = '*at most 64*' }
+        @{ Value = "Tab`there"; Message = '*printable*' }
+        @{ Value = 'content search'; Message = '*built-in case*' }
+        @{ Value = '   '; Message = '*Type a name*' }
+    ) {
+        { ConvertTo-MRCaseName $Value } | Should -Throw $Message
+        ConvertTo-MRCaseName '  Ticket #1 Phishing  ' | Should -Be 'Ticket #1 Phishing'
     }
 }
 

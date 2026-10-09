@@ -4,6 +4,7 @@ function Connect-IPPSSession { [CmdletBinding()] param($UserPrincipalName, $Pref
 function Disconnect-ExchangeOnline { [CmdletBinding(SupportsShouldProcess)] param($ModulePrefix) }
 function Get-ConnectionInformation { [CmdletBinding()] param($ModulePrefix) }
 function Get-MRComplianceCase { [CmdletBinding()] param($CaseType) }
+function New-MRComplianceCase { [CmdletBinding()] param($Name, $CaseType, $Description) }
 function Get-MRComplianceSearch { [CmdletBinding()] param($Identity, $Case, $ResultSize) }
 function New-MRComplianceSearch { [CmdletBinding()] param($Name, $Case, $ExchangeLocation, $ContentMatchQuery, $Description) }
 function Start-MRComplianceSearch { [CmdletBinding()] param($Identity) }

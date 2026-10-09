@@ -40,6 +40,7 @@ param(
     [ValidateSet('All', 'Select', 'Group', 'Paste')][string]$MailboxMode = 'Paste',
     [string]$GroupAddress,
     [string]$CaseName = '',
+    [switch]$CreateCase,
     [string]$PurviewUrl = 'https://purview.microsoft.com/ediscovery/',
     [string]$RunPath,
     [string]$ReportPath,
@@ -276,7 +277,7 @@ function Get-MRCloneOption {
     }
     if ($clone.Interactive) {
         # The copy opens at the review screen. Its case is kept if it is still Active.
-        $clone.WizardOnly = @('Identity', 'SignIn', 'Case', 'Review')
+        $clone.WizardOnly = @('Identity', 'SignIn', 'Case', 'Review', 'CreateCase')
         if ('CaseName' -notin $explicit) { $clone.PreferredCase = $Source.CaseName; $clone.CaseName = ''; $clone.AutoAcceptCase = $true }
         else { $clone.CaseLocked = $true }
         $clone.ExplicitParameters = @($clone.ExplicitParameters | Where-Object { $_ -ne 'CaseName' })
@@ -500,9 +501,11 @@ function Select-MRRun {
 
 function Save-MRTicketSummary {
     param([string]$Directory, $Run, $Search, $Action, $Review)
+    $caseCreated = [string](Get-MRProperty $Run 'CaseCreatedUtc')
+    $case = if ($caseCreated) { "$($Run.CaseName) (created by the toolkit for this search at $caseCreated)" } else { $Run.CaseName }
     $lines = @(
         "Ticket: $($Run.Ticket)", "Ticket URL: $($Run.TicketUrl)", "Tenant ID: $($Run.TenantId)",
-        "Search: $($Run.SearchName)", "Case: $($Run.CaseName)", "Purview: $($Run.PurviewUrl)",
+        "Search: $($Run.SearchName)", "Case: $case", "Purview: $($Run.PurviewUrl)",
         "Sender: $($Run.SenderAddress)", "Looks for: $(Format-MRSearchDescription $Run)", "Query: $($Run.Query)", "Mailboxes: $($Run.Mailboxes -join ', ')",
         "Search status: $($Search.Status)", "Messages found: $($Search.Items)", "Mailboxes searched: $($Search.NumBindings)",
         "Recorded UTC: $([datetimeoffset]::UtcNow.ToString('o'))"
@@ -561,6 +564,7 @@ function Initialize-MROption {
         SenderAddress = ''; Subject = ''; ReceivedFrom = ''; ReceivedThrough = ''; AllDates = $false
         Mailboxes = @('All'); MailboxMode = 'Paste'; GroupAddress = ''; ScopeSelection = $null
         CaseName = ''; CaseLocked = $false; PreferredCase = ''; AutoAcceptCase = $false; AskIdentity = $false; WizardOnly = @()
+        NewCase = $false; CreateCase = $false; CaseCreatedUtc = ''
         ImportedFrom = $null; PickedRun = $false; ExchangeAvailable = $true
         RunPath = ''; ReportPath = ''; PurgeType = 'HardDelete'; PurviewUrl = 'https://purview.microsoft.com/ediscovery/'
         TimeoutSeconds = 1800; PollSeconds = 5
@@ -674,6 +678,9 @@ function Invoke-MRWorkflow {
             Invoke-MRPurviewBrowser @browserParameters
             return
         }
+        if ($Options.CreateCase -and $Options.Mode -in @('Search', 'Clone') -and 'CaseName' -notin $Options.ExplicitParameters) {
+            throw 'Use -CreateCase together with -CaseName, the name of the case to create.'
+        }
         if ($Options.Mode -eq 'Clone') {
             if (-not $Options.RunPath) { $Options.RunPath = Select-MRRun $Options.DataDirectory; $Options.PickedRun = $true }
             $sourcePath = (Resolve-Path -LiteralPath $Options.RunPath).Path
@@ -695,13 +702,14 @@ function Invoke-MRWorkflow {
             $scope = @($Options.ScopeSelection.Mailboxes)
             if ($WhatIfPreference) {
                 $scopeText = if ($scope.Count) { $scope -join ', ' } else { "$($Options.MailboxMode) (chosen after signing in)" }
-                $caseText = if ($Options.CaseName) { $Options.CaseName } elseif ($Options.PreferredCase) { "$($Options.PreferredCase) (confirmed after signing in)" } else { '(chosen after signing in)' }
+                $caseText = if ($Options.CaseName -and $Options.CreateCase) { "$($Options.CaseName) (created if it does not exist yet)" }
+                    elseif ($Options.CaseName) { $Options.CaseName } elseif ($Options.PreferredCase) { "$($Options.PreferredCase) (confirmed after signing in)" } else { '(chosen after signing in)' }
                 Write-Host "`nPreview only. Nothing is created, and the toolkit does not sign in."
                 Write-Host "Tenant: $($Options.TenantId)`nCase: $caseText`nQuery: $query`nMailboxes: $scopeText"
                 $null = $PSCmdlet.ShouldProcess("Tenant $($Options.TenantId)", "Create and run a search for $query")
                 return
             }
-            if ([string]::IsNullOrWhiteSpace($Options.CaseName)) { throw 'Name an existing Purview case. In the menu, pick one from the list; on the command line, use -CaseName.' }
+            if ([string]::IsNullOrWhiteSpace($Options.CaseName)) { throw 'Name a Purview case. In the menu, pick or create one; on the command line, use -CaseName, and add -CreateCase to create it.' }
             if (Test-MRSystemCase $Options.CaseName) { throw 'The toolkit does not create searches in the built-in Content Search case, because they do not appear in the Purview portal there. Choose an incident case.' }
             if (-not $scope.Count) { throw 'No mailboxes were chosen.' }
             $portal = [uri]$Options.PurviewUrl
@@ -730,11 +738,15 @@ function Invoke-MRWorkflow {
             }
             if (-not $PSCmdlet.ShouldProcess("Tenant $($run.TenantId)", "Create and run search $searchName")) { return }
             $connection = Connect-MRPurview $Options.UserPrincipalName $run.TenantId
+            # The guided questions create a new case when the review is accepted; -CreateCase does it here.
+            if ($Options.CreateCase -and (New-MRPurviewCase -CaseName $run.CaseName -Ticket $run.Ticket)) { $Options.CaseCreatedUtc = [datetimeoffset]::UtcNow.ToString('o') }
+            if ($Options.CaseCreatedUtc) { $run | Add-Member CaseCreatedUtc $Options.CaseCreatedUtc }
             $directory = Join-Path ([IO.Path]::GetFullPath($Options.DataDirectory)) $searchName
             $Options.LastRunPath = $directory
             $null = New-Item -ItemType Directory -Path $directory -ErrorAction Stop
             $runLock = [IO.File]::Open((Join-Path $directory 'run.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
             Write-MRJson (Join-Path $directory 'run.json') $run
+            if ($Options.CaseCreatedUtc) { Write-MREvent $directory 'CaseCreated' @{ Case = $run.CaseName; CreatedUtc = $Options.CaseCreatedUtc; Administrator = $connection.UserPrincipalName } }
             Write-MREvent $directory 'SearchCreating' @{ Administrator = $connection.UserPrincipalName; TenantId = $connection.TenantID; Case = $run.CaseName; Query = $query }
             $null = New-MRComplianceSearch -Name $searchName -Case $run.CaseName -ExchangeLocation $scope `
                 -ContentMatchQuery $query -Description $run.Description -ErrorAction Stop
@@ -933,7 +945,7 @@ function Invoke-MRWorkflow {
 if ($MyInvocation.InvocationName -ne '.') {
     $options = @{}
     foreach ($parameterName in @('Mode', 'Ticket', 'TicketUrl', 'UserPrincipalName', 'TenantId',
-        'SenderAddress', 'ReceivedFrom', 'ReceivedThrough', 'AllDates', 'Mailboxes', 'MailboxMode', 'GroupAddress', 'CaseName',
+        'SenderAddress', 'ReceivedFrom', 'ReceivedThrough', 'AllDates', 'Mailboxes', 'MailboxMode', 'GroupAddress', 'CaseName', 'CreateCase',
         'PurviewUrl', 'RunPath', 'ReportPath', 'PurgeType', 'DataDirectory', 'SettingsPath', 'LogDirectory', 'NoSavedSettings', 'TimeoutSeconds', 'PollSeconds')) {
         $options[$parameterName] = Get-Variable -Name $parameterName -ValueOnly
     }

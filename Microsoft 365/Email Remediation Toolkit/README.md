@@ -20,12 +20,13 @@ It works without premium eDiscovery features (for example with Microsoft 365 A3 
   | To do this | The account needs |
   | --- | --- |
   | Search mailboxes | The Purview **eDiscovery Manager** role group, or the **Compliance Search** role |
+  | Create a case from the toolkit | The Purview **Case Management** role, which the **eDiscovery Manager** role group includes |
   | Delete messages | The Purview **Search And Purge** role (in the Organization Management or Data Investigator role groups) |
   | Check message trace, pick mailboxes and groups | An Exchange role that includes message trace and recipient lookups, such as **Exchange Administrator** |
 
   The Exchange Online and Purview "Organization Management" groups are separate; membership in one does not grant the other. [Microsoft's role details](https://learn.microsoft.com/en-us/purview/edisc-search-mailbox-data#before-you-begin)
 
-- **A Purview case for the incident.** A case is a folder in Purview that holds the searches for one incident. To make one, open [Purview eDiscovery](https://purview.microsoft.com/ediscovery/), choose **Cases > Create case**, give it a name such as `INC-1234 Phishing`, and leave premium features off. You can reuse the case for every search about that incident.
+- **A Purview case for the incident, or permission to create one.** A case is a folder in Purview that holds the searches for one incident. The toolkit can create it for you during a new search (see [Cases](#cases)). You can also make one yourself: open [Purview eDiscovery](https://purview.microsoft.com/ediscovery/), choose **Cases > Create case**, give it a name such as `INC-1234 Phishing`, and leave premium features off. You can reuse the case for every search about that incident.
 
 ## Quick start
 
@@ -40,14 +41,14 @@ The first time, the toolkit offers to remember your Tenant ID, admin account, an
 A typical phishing incident looks like this:
 
 1. **Choose 1 (New search).** The toolkit signs you in, then asks, one question at a time:
-   - the Purview case for the incident,
+   - the Purview case for the incident: one you already have, or a new one,
    - your ticket number (suggested from the case name when it contains one) and an optional ticket link,
    - the sender's email address (you can paste it as Outlook shows it, such as `John Reyes <john@example.com>`),
    - optional words from the subject,
    - the first and last day the message arrived,
    - which mailboxes to search (all of them, a list you pick from, the members of a group, or addresses you type).
 
-   It then shows everything on one review screen. Press Enter to create the search, or type an item's number to change it. Nothing is deleted at this stage.
+   It then shows everything on one review screen. Press Enter to create the search (and the case, if you chose a new one), or type an item's number to change it. Nothing is deleted at this stage.
 
 2. **Read the results.** While Purview searches (usually a few minutes for all mailboxes), the toolkit checks Exchange message trace for the same sender and dates. When both finish, you see:
    - how many messages the Purview search found, in how many mailboxes,
@@ -114,6 +115,15 @@ Other limits come from Microsoft:
 
 Use one case per incident, with as many searches in it as you need (for example a first search by sender, then a narrower one by subject).
 
+The first question of a new search asks which case to use:
+
+- **1 (Choose an existing case)** lists the cases your account can use, Active ones first. Type **L** to see closed cases, **T** for all of them, and **/word** to find a case by name. A closed case can be viewed but not searched; reopen it in the portal first. If none of the cases fits, type **C** to create a new one instead.
+- **2 (Create a new case)** asks for its name without showing the list.
+
+A new case is created only when you accept the review screen, so going back or canceling before that leaves nothing in Purview. If Purview refuses the name, the review screen opens again with every answer kept, so you can change the case or try again.
+
+Case names can be up to 64 characters and must be unique across your organization. Including the ticket number, such as `Ticket #5678 Phishing`, lets the next question suggest it. If you type the name of a case you can already see, the toolkit offers to use that case instead of making a duplicate. A name can also belong to another admin's case that you cannot see; Purview then refuses it and you choose another. The new case has no premium features, and its description notes the ticket and that the toolkit created it. Other admins see it only if they are eDiscovery Administrators or you add them to the case in the portal.
+
 The toolkit does not offer Purview's built-in **Content Search** case. In testing on October 8, 2026, a search the toolkit created there did not appear in the Purview portal, while a search created the same way in an ordinary case did. The toolkit can still show searches already in Content Search under **5 (Purview cases)**, but it only creates new searches in incident cases.
 
 ## Ticket links
@@ -126,7 +136,7 @@ Every search gets its own folder, by default under `%LOCALAPPDATA%\M365-EmailRem
 
 | File | What it holds |
 | --- | --- |
-| `run.json` | The ticket, case, sender, subject, dates, mailboxes, and the exact Purview query |
+| `run.json` | The ticket, case, sender, subject, dates, mailboxes, and the exact Purview query, plus when the toolkit created the case if it did |
 | `search.json`, `location-counts.csv` | What the search found when it first completed, per mailbox |
 | `message-trace-messages-*.csv` | Every message trace row, with recipient, subject, time, and delivery status |
 | `message-trace-comparison-*.csv` | The per-mailbox comparison of search and trace |
@@ -149,8 +159,8 @@ These files contain email addresses, subjects, and ticket numbers. Keep them in 
 Every action also works with parameters, for scripts or repeat use. Preview any of them with `-WhatIf`, which signs in to nothing and writes nothing.
 
 ```powershell
-# Create a search (nothing is deleted)
-.\Invoke-MailRemediation.ps1 -Mode Search -CaseName 'INC-1234 Phishing' -Ticket INC-1234 `
+# Create a search (nothing is deleted), and the case too if it does not exist yet
+.\Invoke-MailRemediation.ps1 -Mode Search -CaseName 'INC-1234 Phishing' -CreateCase -Ticket INC-1234 `
     -TenantId 11111111-1111-1111-1111-111111111111 -UserPrincipalName admin@contoso.com `
     -SenderAddress phish@example.com -ReceivedFrom 2026-10-05 -ReceivedThrough 2026-10-06
 
@@ -165,7 +175,8 @@ Every action also works with parameters, for scripts or repeat use. Preview any 
 | Parameter | Purpose |
 | --- | --- |
 | `-Mode` | `Menu` (default), `Search`, `Clone` (copy a saved run), `Remove`, `Status`, `BrowsePurview`, or `SignOut` |
-| `-CaseName` | The Purview case for a new search. Required on the command line; the menu offers a list |
+| `-CaseName` | The Purview case for a new search. Required on the command line; the menu offers a list or creates one |
+| `-CreateCase` | Create the `-CaseName` case if it does not exist yet. An Active case with that name is used as it is; a closed one stops the search |
 | `-Ticket`, `-TicketUrl` | Ticket number and optional https link |
 | `-TenantId`, `-UserPrincipalName` | Tenant ID and admin sign-in email; saved settings are used when omitted |
 | `-SenderAddress`, `-Subject` | Sender address and optional subject words |
@@ -185,7 +196,7 @@ In PowerShell, pass several mailboxes as `-Mailboxes 'alice@contoso.com','bob@co
 - Delete if the search now finds different messages than when it was created, or if anything about the search was changed outside the toolkit.
 - Submit a second deletion for the same run, even after a lost connection. Use Check status, and create a new search if more is needed.
 - Delete from a search it did not create. Under **5 (Purview cases)** you can view existing searches, or copy their criteria into a new search with its own review.
-- Change roles, holds, retention settings, or cases. It does not create cases.
+- Change roles, holds, retention settings, or existing cases. Besides searches and deletions, the only thing it creates in Purview is a new case, and only when you ask for one.
 - Send email, update your helpdesk, or upload records anywhere.
 
 ## Testing
@@ -203,4 +214,4 @@ Invoke-Pester -Configuration $configuration
 
 For static analysis, exclude `PSAvoidUsingWriteHost`, because console messages are the interface.
 
-Validation on October 8, 2026, with PowerShell 7.6.6 and Pester 6.1.0: all 261 tests passed, and the toolkit files passed static analysis. The script was also run with typed input: a full guided search in preview mode (including going back and changing an answer from the review screen), and a normal start and quit that wrote a session log. The new message trace review, sign-in reuse, and session log have not yet been run against a live tenant. Before relying on them, run a search scoped to your own mailbox, check the trace review against what you see in Outlook, and try Delete with recoverable deletion.
+Validation on October 8, 2026, with PowerShell 7.6.6 and Pester 6.1.0: all 278 tests passed, and static analysis found no warnings or errors in the toolkit files. The script was also run with typed input: a full guided search in preview mode (including going back and changing an answer from the review screen), and a normal start and quit that wrote a session log. The new message trace review, sign-in reuse, session log, and case creation have not yet been run against a live tenant. Before relying on them, run a search scoped to your own mailbox, check the trace review against what you see in Outlook, and try Delete with recoverable deletion. To check case creation, create a test case from the toolkit and confirm it appears in the Purview portal with the search in it.
