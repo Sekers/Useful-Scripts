@@ -589,29 +589,15 @@ function Resolve-MRSearchDefault {
     if ('CaseName' -in $Options.ExplicitParameters -and $Options.CaseName) { $Options.CaseLocked = $true }
 }
 
-function Get-MRTraceGap {
-    # Explains why message trace has not shown every message the search would delete, or
-    # returns '' when it has: the dates are covered and no mailbox has more search results
-    # than trace deliveries.
-    param($Review, [string]$TraceProblem)
-    if (-not $Review) { return $(if ($TraceProblem) { $TraceProblem } else { 'Message trace is not available for this search.' }) }
-    if (-not $Review.CoversSearchDates) { return $Review.Note }
-    if ([long]$Review.UnshownItems -gt 0) {
-        return "The search found $($Review.UnshownItems) message(s) in $($Review.UnshownMailboxes) mailbox(es) that message trace does not show, so you have not seen them. This happens with older or archived copies, or when the message's envelope sender differs from the From address shown in Outlook."
-    }
-    return ''
-}
-
 function Read-MRRemovalEvidence {
     # Before deletion the operator must have seen every message: message trace when it
     # accounts for everything the search found, otherwise a report from the Purview portal.
-    param($Review, [string]$Directory, [string]$ReportPath, [bool]$Interactive, [string]$TraceProblem)
+    param($Review, $Run, [string]$Directory, [string]$ReportPath, [bool]$Interactive, [string]$TraceProblem)
     if ($ReportPath) { return Read-MRReportPath $ReportPath }
-    $gap = Get-MRTraceGap $Review $TraceProblem
-    if ($gap) {
-        Write-MRText Notice "Message trace cannot show everything this search would delete. $gap"
-        Write-Host 'Before deleting, export the item report for this search from the Purview portal and choose it here.'
-        return Read-MRReportPath
+    $gaps = @(Get-MRTraceGap -Review $Review -Run $Run -TraceProblem $TraceProblem)
+    if ($gaps.Count) {
+        Show-MRTraceGap $gaps
+        return Read-MRReportPath -Run $Run
     }
     if (-not $Interactive) { return '' }
     while ($true) {
@@ -624,7 +610,7 @@ function Read-MRRemovalEvidence {
         if (-not $choice) { return '' }
         if ($choice -ieq 'L') { Show-MRTraceMessage $Directory $Review; continue }
         if ($choice -ieq 'R') {
-            try { return Read-MRReportPath }
+            try { return Read-MRReportPath -Run $Run }
             catch { if (-not (Test-MRBackSignal $_)) { throw } }
             continue
         }
@@ -766,10 +752,10 @@ function Invoke-MRWorkflow {
             if ($traceResult.Status -eq 'Completed') {
                 $review = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult $traceResult
                 Show-MRTraceReview $review
-            } else {
-                Write-MREvent $directory 'TraceUnavailable' @{ Reason = $traceResult.Reason }
-                Write-MRText Notice "Message trace is not available for this search. $($traceResult.Reason) Deleting will need a report exported from the Purview portal instead."
-            }
+            } else { Write-MREvent $directory 'TraceUnavailable' @{ Reason = $traceResult.Reason } }
+            # Say now, while there is time to export it, when deleting will need a portal report.
+            $gaps = @(Get-MRTraceGap -Review $review -Run $run -TraceProblem $traceResult.Reason)
+            if ($gaps.Count -and [long]$search.Items -gt 0) { Show-MRTraceGap $gaps; Write-MRReportStep $run }
             Save-MRTicketSummary $directory $run $search $null $review
             if ($Options.SettingsPath -and -not $Options.NoSavedSettings -and $settingsUsable) {
                 try { Save-MRProfile $Options.SettingsPath $run $connection.UserPrincipalName -DataDirectory $Options.DataDirectory -Confirm:$false }
@@ -812,7 +798,11 @@ function Invoke-MRWorkflow {
             }
             Show-MRReview $run $search $directory
             $review = Get-MRSavedTraceReview $directory
-            if ($review) { Show-MRTraceReview $review }
+            if ($review) {
+                Show-MRTraceReview $review
+                $gaps = @(Get-MRTraceGap -Review $review -Run $run)
+                if ($gaps.Count -and -not $action -and [string]$search.Items -match '^\d+$' -and [long]$search.Items -gt 0) { Show-MRTraceGap $gaps; Write-MRReportStep $run }
+            }
             if ($action) {
                 Save-MRSnapshot $directory 'purge-status' $action
                 Write-MRText Heading 'Deletion'
@@ -859,7 +849,7 @@ function Invoke-MRWorkflow {
             else { $traceProblem = $traceResult.Reason; Write-MREvent $directory 'TraceUnavailable' @{ Reason = $traceProblem } }
         }
         if ($review) { Show-MRTraceReview $review }
-        $reportPath = Read-MRRemovalEvidence -Review $review -Directory $directory -ReportPath $Options.ReportPath -Interactive $Options.Interactive -TraceProblem $traceProblem
+        $reportPath = Read-MRRemovalEvidence -Review $review -Run $run -Directory $directory -ReportPath $Options.ReportPath -Interactive $Options.Interactive -TraceProblem $traceProblem
         $evidence = [ordered]@{ Administrator = $connection.UserPrincipalName; MessageTrace = $null; Report = $null }
         if ($review) { $evidence.MessageTrace = [ordered]@{ Review = $review.Files.Review; MessagesSha256 = $review.MessagesSha256; Covers = $review.CoversSearchDates; Different = $review.MailboxesDifferent } }
         if ($reportPath) {

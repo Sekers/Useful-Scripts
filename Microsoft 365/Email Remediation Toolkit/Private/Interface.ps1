@@ -124,8 +124,8 @@ function Write-MRPromptHelp {
             Write-Host 'To search everyone in a group, go back and choose the group option instead.'
         }
         'Report' {
-            Write-Host 'In the Purview portal, open the search, choose Export, select "Export items report only", and download it from Process manager.'
-            Write-Host 'Extract the download and choose the item list CSV (often named Items.csv). Instructions: https://learn.microsoft.com/en-us/purview/edisc-search-export'
+            Write-Host 'In the Purview portal, open the case and the search, choose Export, and under Export type choose "Export items report only". Download it from Process manager.'
+            Write-Host 'Extract the download and choose the item report CSV. Instructions: https://learn.microsoft.com/en-us/purview/edisc-search-export'
         }
         'Removal' {
             Write-Host 'Permanent (HardDelete): users cannot get the messages back. Use this for phishing and harmful mail.'
@@ -319,10 +319,21 @@ function Select-MRReportFile {
     finally { $powershell.Dispose(); $runspace.Dispose() }
 }
 
+function Write-MRReportStep {
+    # How to export the item report for this run's search from the Purview portal.
+    param($Run, [switch]$AtDeletion)
+    Write-Host 'To get the report:'
+    Write-Host "  1. Open https://purview.microsoft.com/ediscovery/ and go to Cases > $($Run.CaseName) > Searches. Open the search $($Run.SearchName)."
+    Write-Host '  2. Choose Export, give the export a name, and under Export type choose "Export items report only".'
+    Write-Host '  3. When the export finishes, download it from Process manager and extract it. Large exports can take a while.'
+    if ($AtDeletion) { Write-Host '  4. Choose the item report CSV below.' }
+    else { Write-Host '  4. Choose 2 (Delete) for this run, and pick the item report CSV when asked.' }
+}
+
 function Read-MRReportPath {
-    param([string]$Path)
+    param([string]$Path, $Run)
     $explicitPath = -not [string]::IsNullOrWhiteSpace($Path)
-    if (-not $explicitPath) { Write-MRPromptHelp Report }
+    if (-not $explicitPath) { if ($Run) { Write-MRReportStep $Run -AtDeletion } else { Write-MRPromptHelp Report } }
     while ($true) {
         if (-not $Path) {
             Write-Host '[F] Choose the CSV with a file picker'

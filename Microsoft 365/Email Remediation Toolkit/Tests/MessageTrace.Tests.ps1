@@ -154,9 +154,9 @@ Describe 'Saved message trace review' {
         $trace = New-TestTraceResult $run @(New-TestTraceMessage alice@contoso.com; New-TestTraceMessage bob@contoso.com; New-TestTraceMessage bob@contoso.com; New-TestTraceMessage bob@contoso.com; New-TestTraceMessage bob@contoso.com)
         $review = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult $trace
         $review.UnshownMailboxes | Should -Be 1; $review.UnshownItems | Should -Be 1
-        Get-MRTraceGap $review '' | Should -BeLike '*1 message(s) in 1 mailbox(es) that message trace does not show*'
+        @(Get-MRTraceGap -Review $review -Run $run).Reason | Should -BeLike '*1 more message(s)*alice@contoso.com*'
         $matching = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult (New-TestMatchingTrace $run)
-        Get-MRTraceGap $matching '' | Should -Be ''
+        @(Get-MRTraceGap -Review $matching -Run $run).Count | Should -Be 0
     }
     It 'shows agreement, differences, and the full list in plain words' {
         $script:shown = [collections.generic.List[string]]::new()
@@ -173,6 +173,77 @@ Describe 'Saved message trace review' {
         Show-MRTraceReview $partial
         ($script:shown -join "`n") | Should -Match 'differ for 2 of 2'
         ($script:shown -join "`n") | Should -Match 'bob@contoso.com: search found 3, trace shows 0 delivered'
+    }
+}
+
+Describe 'Explaining when deleting needs a portal report' {
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        $run = New-TestRun; $search = New-TestSearch $run
+        $directory = Save-TestRun $run (Join-Path $TestDrive ([guid]::NewGuid().ToString('N')))
+    }
+    It 'asks for nothing when message trace shows every message' {
+        $review = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult (New-TestMatchingTrace $run)
+        @(Get-MRTraceGap -Review $review -Run $run).Count | Should -Be 0
+    }
+    It 'explains dates older than 90 days and suggests a copy with recent dates' {
+        $run.ReceivedFrom = '2020-01-01'; $run.ReceivedThrough = '2020-01-02'
+        $gaps = @(Get-MRTraceGap -Review $null -Run $run -TraceProblem 'Not used for old dates.')
+        $gaps.Count | Should -Be 1
+        $gaps[0].Reason | Should -BeLike '*90 days*'
+        $gaps[0].Advice | Should -BeLike '*copy this search (menu 4)*'
+    }
+    It 'explains an all-dates search even when trace matches' {
+        $allDates = New-TestRun -AllDates
+        $review = Save-MRTraceReview -Directory $directory -Run $allDates -Search $search -TraceResult (New-TestMatchingTrace $allDates)
+        $gaps = @(Get-MRTraceGap -Review $review -Run $allDates)
+        $gaps.Count | Should -Be 1
+        $gaps[0].Reason | Should -BeLike '*all dates*90 days*'
+    }
+    It 'says how to fix an unavailable message trace' {
+        $today = [datetime]::UtcNow
+        $run.ReceivedFrom = $today.AddDays(-2).ToString('yyyy-MM-dd'); $run.ReceivedThrough = $today.ToString('yyyy-MM-dd')
+        $gaps = @(Get-MRTraceGap -Review $null -Run $run -TraceProblem 'This admin account cannot run message trace. It needs an Exchange role such as Exchange Administrator.')
+        $gaps[0].Reason | Should -BeLike '*Exchange role*'
+        $gaps[0].Advice | Should -BeLike '*choose Delete again*'
+    }
+    It 'explains the hidden sender address when trace finds no mail from the sender' {
+        $review = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult (New-TestTraceResult $run @())
+        $gaps = @(Get-MRTraceGap -Review $review -Run $run)
+        $gaps.Count | Should -Be 1
+        $gaps[0].Reason | Should -BeLike '*no mail from phish@example.com*Return-Path*'
+        $gaps[0].Advice | Should -BeLike '*message headers*'
+    }
+    It "explains the sender's own copies when the sender has a mailbox here, even under another address" {
+        $search.SuccessResults += '; {Location: staff@contoso.com, Item count: 2}'
+        $trace = New-TestMatchingTrace $run
+        $trace | Add-Member MailboxLookup @{ 'phish@example.com' = 'staff@contoso.com'; 'staff@contoso.com' = 'staff@contoso.com'; 'alice@contoso.com' = 'alice@contoso.com'; 'bob@contoso.com' = 'bob@contoso.com' }
+        $review = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult $trace
+        $review.SenderMailbox | Should -Be 'staff@contoso.com'; $review.SenderMailboxUnshown | Should -Be 2
+        $gaps = @(Get-MRTraceGap -Review $review -Run $run)
+        $gaps.Count | Should -Be 1
+        $gaps[0].Reason | Should -BeLike '*has a mailbox in your organization*2 message(s)*Sent Items*'
+    }
+    It 'lists the mailboxes where the search found copies that trace cannot explain' {
+        $trace = New-TestTraceResult $run @(New-TestTraceMessage alice@contoso.com; New-TestTraceMessage bob@contoso.com)
+        $review = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult $trace
+        $gaps = @(Get-MRTraceGap -Review $review -Run $run)
+        $gaps.Count | Should -Be 1
+        $gaps[0].Reason | Should -BeLike '*3 more message(s)*alice@contoso.com, bob@contoso.com*'
+        $gaps[0].Advice | Should -BeLike '*redirected or forwarded*'
+    }
+    It 'shows the reasons, what to do, and the portal steps with the case and search names' {
+        $script:shown = [collections.generic.List[string]]::new()
+        Mock Write-Host { $script:shown.Add([string]$Object) }
+        $review = Save-MRTraceReview -Directory $directory -Run $run -Search $search -TraceResult (New-TestTraceResult $run @())
+        Show-MRTraceGap @(Get-MRTraceGap -Review $review -Run $run)
+        Write-MRReportStep $run
+        $text = $script:shown -join "`n"
+        $text | Should -Match 'needs the item report from the Purview portal'
+        $text | Should -Match 'What you can do: '
+        $text | Should -Match "Cases > Incident case > Searches\. Open the search $([regex]::Escape($run.SearchName))"
+        $text | Should -Match 'Export items report only'
+        $text | Should -Match 'Choose 2 \(Delete\) for this run'
     }
 }
 

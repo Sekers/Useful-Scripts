@@ -98,10 +98,20 @@ Purview's PowerShell commands report how many messages a search found in each ma
 
 - **Message trace** is Exchange's delivery log. It lists each message the sender delivered, with the recipient, subject, time, and whether it reached the inbox, Junk Email, or quarantine. The toolkit compares it with the search, mailbox by mailbox.
 - **When they agree**, you can be confident the search found the messages you meant. A typical result is "40 messages, one subject, 40 mailboxes; search and trace agree for all 40 mailboxes".
-- **When they differ**, the toolkit lists the mailboxes. If the trace shows more, the user probably already deleted the message; that is harmless, because only what the search finds is deleted.
-- **If the search found messages the trace does not show**, nobody has seen those messages yet, so the toolkit asks for a report from the Purview portal before it will delete anything. This happens with older or archived copies, and with phishing whose envelope sender (which message trace uses) differs from the From address Outlook shows.
+- **When they differ**, the toolkit lists the mailboxes. If the trace shows more, the user usually deleted the message already, or it went to quarantine; that is harmless, because only what the search finds is deleted.
+- **If the search found messages the trace does not show**, nobody has seen those messages yet, so the toolkit asks for a report from the Purview portal before it will delete anything.
 
-Message trace only keeps the last 90 days. If the search covers older mail, or you chose all dates, or your account cannot run message trace, the toolkit also asks for a portal report before it will delete anything. To get one: open the search in the portal, choose **Export**, select **Export items report only**, download it from **Process manager**, extract it, and give the toolkit the item CSV (often `Items.csv`). You can also attach such a report as extra evidence when message trace is available.
+When message trace cannot cover a search, the toolkit says which of these situations it is and what you can do, right after the search finishes (so you can start the export) and again at Delete:
+
+| Situation | Why message trace misses it | What you can do |
+| --- | --- | --- |
+| The mail is older than 90 days, or you chose all dates | Message trace keeps only the last 90 days | If the phishing is recent, copy the search (menu 4) with dates inside the last 90 days, and no report is needed |
+| Message trace finds no mail from the sender | Message trace looks up the hidden sender address (the MAIL FROM, usually in the Return-Path header), not the From address Outlook shows; phishing often uses a different one ([Microsoft's note](https://learn.microsoft.com/exchange/monitoring/trace-an-email-message/message-trace-faq)) | Export the portal report. To confirm, compare the Return-Path and From lines in the message headers |
+| The sender has a mailbox in your organization | Their own copies, such as in Sent Items, are not deliveries | Export the portal report to check those copies |
+| Some mailboxes have more copies than were delivered | For example, a message redirected or forwarded to that mailbox, or one sent with a different hidden sender address | Export the portal report |
+| Message trace is not available | Your account lacks an Exchange role that can run message trace, or Exchange Online did not sign in | Fix the cause and choose Delete again, which runs message trace again; or export the portal report |
+
+The toolkit shows the export steps with the case and search names filled in: open the case and the search in the portal, choose **Export**, choose **Export items report only** under Export type, download it from **Process manager**, extract it, and give the toolkit the item report CSV. You can also attach such a report as extra evidence when message trace is available.
 
 Other limits come from Microsoft:
 
@@ -214,4 +224,4 @@ Invoke-Pester -Configuration $configuration
 
 For static analysis, exclude `PSAvoidUsingWriteHost`, because console messages are the interface.
 
-Validation on October 8, 2026, with PowerShell 7.6.6 and Pester 6.1.0: all 278 tests passed, and static analysis found no warnings or errors in the toolkit files. The script was also run with typed input: a full guided search in preview mode (including going back and changing an answer from the review screen), and a normal start and quit that wrote a session log. The new message trace review, sign-in reuse, session log, and case creation have not yet been run against a live tenant. Before relying on them, run a search scoped to your own mailbox, check the trace review against what you see in Outlook, and try Delete with recoverable deletion. To check case creation, create a test case from the toolkit and confirm it appears in the Purview portal with the search in it.
+Validation on October 8, 2026, with PowerShell 7.6.6 and Pester 6.1.0: all 287 tests passed, and static analysis found no warnings or errors in the toolkit files. The script was also run with typed input: a full guided search in preview mode (including going back and changing an answer from the review screen), and a normal start and quit that wrote a session log. The new message trace review, sign-in reuse, session log, and case creation have not yet been run against a live tenant. Before relying on them, run a search scoped to your own mailbox, check the trace review against what you see in Outlook, and try Delete with recoverable deletion. To check case creation, create a test case from the toolkit and confirm it appears in the Purview portal with the search in it.

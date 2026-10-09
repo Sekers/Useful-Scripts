@@ -198,6 +198,11 @@ function Save-MRTraceReview {
     # Messages the search found that the trace did not show have not been seen by anyone.
     $unshown = @($compared.Comparison | Where-Object { $_.SearchFound -gt $_.TraceDelivered })
     $unshownItems = [long](($unshown | ForEach-Object { $_.SearchFound - $_.TraceDelivered } | Measure-Object -Sum).Sum)
+    # A sender with a mailbox here keeps copies, such as in Sent Items, that are not deliveries.
+    $senderAddress = ([string]$Run.SenderAddress).ToLowerInvariant()
+    $senderMailbox = if ($lookup.ContainsKey($senderAddress)) { [string]$lookup[$senderAddress] } elseif (@($compared.Comparison | Where-Object Mailbox -EQ $senderAddress).Count) { $senderAddress } else { '' }
+    $senderRow = @($unshown | Where-Object { $senderMailbox -and $_.Mailbox -eq $senderMailbox })
+    $senderUnshown = if ($senderRow.Count) { [long]($senderRow[0].SearchFound - $senderRow[0].TraceDelivered) } else { 0 }
     $subjects = @($reviewed | Group-Object Subject | Sort-Object Count -Descending | ForEach-Object {
         $times = @($_.Group.ReceivedUtc | Sort-Object)
         [ordered]@{ Subject = $_.Name; Messages = $_.Count; Mailboxes = @($_.Group.Mailbox | Sort-Object -Unique).Count; FirstUtc = $times[0]; LastUtc = $times[-1] }
@@ -207,7 +212,8 @@ function Save-MRTraceReview {
         Status = 'Completed'; RecordedUtc = [datetimeoffset]::UtcNow.ToString('o'); Sender = $Run.SenderAddress; SubjectFilter = $Run.Subject
         WindowStartUtc = Format-MRUtc $TraceResult.Window.StartUtc; WindowEndUtc = Format-MRUtc $TraceResult.Window.EndUtc
         CoversSearchDates = [bool]$TraceResult.Window.CoversSearchDates; Note = [string]$TraceResult.Window.Note
-        Messages = $reviewed.Count; Mailboxes = @($reviewed.Mailbox | Sort-Object -Unique).Count
+        # ForEach-Object, because strict mode rejects .Mailbox on an empty list.
+        Messages = $reviewed.Count; Mailboxes = @($reviewed | ForEach-Object Mailbox | Sort-Object -Unique).Count
         Delivered = @($reviewed | Where-Object Status -EQ 'Delivered').Count
         MarkedAsSpam = @($reviewed | Where-Object Status -EQ 'FilteredAsSpam').Count
         NotDelivered = @($reviewed | Where-Object { $_.Status -notin @('Delivered', 'FilteredAsSpam') }).Count
@@ -215,6 +221,7 @@ function Save-MRTraceReview {
         Subjects = $subjects
         MailboxesCompared = @($compared.Comparison).Count; MailboxesDifferent = $differences.Count
         UnshownMailboxes = $unshown.Count; UnshownItems = $unshownItems
+        SenderMailbox = $senderMailbox; SenderMailboxUnshown = $senderUnshown
         Differences = @($differences | Select-Object -First 50)
         Files = $files
         MessagesSha256 = (Get-FileHash -LiteralPath (Join-Path $Directory $files.Messages) -Algorithm SHA256).Hash
@@ -243,7 +250,6 @@ function Show-MRTraceReview {
     Write-MRText Heading 'What Exchange delivered (message trace)'
     Write-MRText Hint "Message trace is Exchange's delivery log. It shows each message the sender delivered, so you can check the search found the right email."
     Write-Host "Dates checked: $($Review.WindowStartUtc) to $($Review.WindowEndUtc) (UTC)"
-    if ($Review.Note) { Write-MRText Notice $Review.Note }
     if (-not $Review.Messages) { Write-Host "No messages from $($Review.Sender) were delivered to the searched mailboxes in those dates." }
     else {
         Write-Host "$($Review.Messages) message(s) from $($Review.Sender) reached $($Review.Mailboxes) mailbox(es): $($Review.Delivered) delivered, $($Review.MarkedAsSpam) to Junk Email, $($Review.NotDelivered) not delivered (quarantined, failed, or pending)."
@@ -266,10 +272,57 @@ function Show-MRTraceReview {
         Write-Host "  $($difference.Mailbox): search found $($difference.SearchFound), trace shows $($difference.TraceDelivered) delivered"
     }
     if ($Review.MailboxesDifferent -gt 15) { Write-Host "  ...see $($Review.Files.Comparison) in the run folder for the rest." }
-    Write-Host 'Usual reasons: the user already deleted the message (trace shows more), or the search also found older or archived copies (search shows more). Check these mailboxes before deleting.'
-    if ([long]$Review.UnshownItems -gt 0) {
-        Write-MRText Notice "The search found $($Review.UnshownItems) message(s) that the trace does not show, so deleting will need a report from the Purview portal to review them first."
+    if (@($Review.Differences | Where-Object { $_.TraceDelivered -gt $_.SearchFound }).Count) {
+        Write-Host 'Where message trace shows more, the user usually deleted the message already, or it went to quarantine. That is harmless: only what the search finds is deleted.'
     }
+}
+
+function Get-MRTraceGap {
+    # Says why message trace has not shown every message the search would delete, and what
+    # the operator can do about it. Returns nothing when trace has shown them all.
+    param($Review, $Run, [string]$TraceProblem)
+    $senderAddress = [string]$Run.SenderAddress
+    $copyAdvice = 'If the phishing arrived in the last 90 days, copy this search (menu 4) with dates inside that range instead. Message trace then covers it, and no report is needed.'
+    if (-not $Review) {
+        $window = Get-MRTraceWindow $Run
+        if (-not $window.CoversSearchDates) { return [pscustomobject]@{ Reason = $window.Note; Advice = $copyAdvice } }
+        $reason = if ($TraceProblem) { $TraceProblem } else { 'Message trace is not available for this search.' }
+        return [pscustomobject]@{ Reason = $reason; Advice = 'If the cause can be fixed, such as a missing Exchange role or a failed Exchange Online sign-in, fix it and choose Delete again. Delete runs message trace again before it asks for a report.' }
+    }
+    if (-not $Review.CoversSearchDates) { [pscustomobject]@{ Reason = [string]$Review.Note; Advice = $copyAdvice } }
+    $senderExtra = [long](Get-MRProperty $Review 'SenderMailboxUnshown')
+    $otherExtra = [long]$Review.UnshownItems - $senderExtra
+    if ($senderExtra -gt 0) {
+        [pscustomobject]@{
+            Reason = "$senderAddress has a mailbox in your organization, and the search found $senderExtra message(s) in it, such as the copies in Sent Items. Message trace lists deliveries only, so it does not show the sender's own copies."
+            Advice = 'The portal report lists those copies, so you can check them before they are deleted along with the rest.'
+        }
+    }
+    if ($otherExtra -le 0) { return }
+    if (-not [long]$Review.Messages) {
+        [pscustomobject]@{
+            Reason = "Message trace found no mail from $senderAddress, but the search found $otherExtra message(s). Message trace looks up the hidden sender address (the MAIL FROM, usually shown in the message's Return-Path header), not the From address Outlook shows, and this phishing most likely used a different one."
+            Advice = 'To confirm, open one of the messages in Outlook, view its message headers, and compare the Return-Path line with the From address.'
+        }
+        return
+    }
+    $mailboxes = @($Review.Differences | Where-Object { $_.SearchFound -gt $_.TraceDelivered -and $_.Mailbox -ne (Get-MRProperty $Review 'SenderMailbox') } | ForEach-Object Mailbox)
+    $shown = @($mailboxes | Select-Object -First 3) -join ', '
+    $more = if ($mailboxes.Count -gt 3) { ", and $($mailboxes.Count - 3) more" } else { '' }
+    [pscustomobject]@{
+        Reason = "The search found $otherExtra more message(s) than message trace shows were delivered, in: $shown$more."
+        Advice = 'Message trace cannot explain these copies. They can come from a message that was redirected or forwarded to that mailbox, or sent with a different hidden sender address (Return-Path). The portal report lists them.'
+    }
+}
+
+function Show-MRTraceGap {
+    param([object[]]$Gaps)
+    Write-MRText Notice 'Message trace cannot show every message this search would delete, so deleting needs the item report from the Purview portal first:'
+    foreach ($gap in $Gaps) {
+        Write-Host "- $($gap.Reason)"
+        if ($gap.Advice) { Write-Host "  What you can do: $($gap.Advice)" }
+    }
+    Write-MRLog 'TraceGap' @{ Reasons = @($Gaps | ForEach-Object Reason) }
 }
 
 function Show-MRTraceMessage {

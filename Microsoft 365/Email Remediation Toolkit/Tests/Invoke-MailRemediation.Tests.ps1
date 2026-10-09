@@ -536,6 +536,19 @@ Describe 'Search and removal with Microsoft 365 mocked' {
         $savedDirectory = Join-Path $options.DataDirectory $script:createdSearch.Name
         (Get-Content -LiteralPath (Join-Path $savedDirectory 'events.jsonl') | ConvertFrom-Json).Event | Should -Contain 'TraceUnavailable'
     }
+    It 'says right after the search how to get the portal report that deleting will need' {
+        $options.Mode = 'Search'; $options.ReportPath = ''
+        $script:shown = [collections.generic.List[string]]::new()
+        Mock Write-Host { $script:shown.Add([string]$Object) }
+        Mock New-MRComplianceSearch { $script:createdSearch = New-TestSearch $run; $script:createdSearch.Name = $Name; $script:createdSearch.Description = $Description; $script:createdSearch.ContentMatchQuery = $ContentMatchQuery }
+        Mock Wait-MRJob { $script:createdSearch }
+        Invoke-MRWorkflow -Options $options -Confirm:$false
+        $text = $script:shown -join "`n"
+        $text | Should -Match 'Test: message trace is unavailable\.'
+        $text | Should -Match 'What you can do: '
+        $text | Should -Match 'Export items report only'
+        $text | Should -Match "Open the search $([regex]::Escape($script:createdSearch.Name))"
+    }
     It 'refuses the built-in Content Search case and a missing case name' {
         $options.Mode = 'Search'; $options.CaseName = 'Content Search'
         { Invoke-MRWorkflow -Options $options -Confirm:$false } | Should -Throw '*Content Search*'
