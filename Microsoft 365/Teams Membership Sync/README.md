@@ -37,6 +37,23 @@ A PowerShell script that syncs members of Microsoft 365 and Azure AD groups to M
 
 Make copies of the sample configuration files in the 'Config Templates' folder and place them into the 'Config' folder. Update these configuration settings using the documentation below.
 
+### Escaping Backslashes and Quotes
+
+JSON uses the backslash as an escape character, so backslashes and double quotes inside a value must be escaped: write each backslash as `\\` and each double quote as `\"`. This applies to every path in the configuration files. For example:
+
+```json
+"MgApp_CertificatePath": "$PSScriptRoot\\Config\\PrivateKeyCertificate.pfx"
+```
+
+To escape a value for you, use either of the following. Both give the value with its surrounding double quotes, so the result replaces the whole value, quotes included.
+
+- **[CyberChef](https://gchq.github.io/CyberChef/#recipe=Remove_whitespace(false,true,true,false,false,false)Find_/_Replace(%7B'option':'Regex','string':'%5E%22%7C%22$'%7D,'',true,false,false,false)Escape_string('Minimal','Double',true,false,false)):** Opens with the right settings. Paste your value into Input and copy the Output. It ignores line breaks.
+- **PowerShell:** Run the command below with your value between the single quotes, which stop PowerShell from expanding variables such as `$PSScriptRoot`. Windows PowerShell 5.1 may write some characters as codes, such as `\u0027` for an apostrophe; that's still valid JSON.
+
+  ```powershell
+  '$PSScriptRoot\Config\PrivateKeyCertificate.pfx' | ConvertTo-Json
+  ```
+
 ---
 
 ### **config_general.json**
@@ -83,7 +100,7 @@ MSGraph
     - **CertificateName:** Tells the script that you will specify the Common Name (e.g. 'CN=My Test Certificate Name') of a certificate with a private key. This certificate should be in the current user certificate store of the account that the script runs under. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
     - **CertificateThumbprint:** Tells the script that you will specify the thumbprint of a certificate with a private key.  This certificate should be in the current user certificate store of the account that the script runs under. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
     - **ClientSecret:** Tells the script that you will specify a client secret, sometimes called an *application password*. Client secrets are considered less secure than certificate credentials. Application developers sometimes use client secrets during local app development because of their ease of use. However, you should use certificate credentials for any of your applications that are running in production. You can [add a client secret for the registered application](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-client-secret) from the Azure portal. Client secret expiration is now limited to a maximum of [two years](https://devblogs.microsoft.com/microsoft365dev/client-secret-expiration-now-limited-to-a-maximum-of-two-years/). It's recommended to use PowerShell 7 and above when using client secret credentials.
-- **MgApp_CertificatePath (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateFile'. Enter the path where the private key certificate file is located. You can include PowerShell code and variables (e.g., "PSScriptRoot\\\\Config\\\\PrivateKeyCertificate.pfx"). Don't forget to [double up on the backslash in paths](https://www.freeformatter.com/json-escape.html) to escape it.
+- **MgApp_CertificatePath (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateFile'. Enter the path where the private key certificate file is located. You can include PowerShell code and variables (e.g., `"$PSScriptRoot\\Config\\PrivateKeyCertificate.pfx"`). Backslashes and double quotes must be escaped; see [Escaping Backslashes and Quotes](#escaping-backslashes-and-quotes).
 - **MgApp_CertificateName (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateName'. Enter the Common Name of the private key certificate. E.g., "CN=My Test Certificate Name".
 - **MgApp_CertificateThumbprint (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateThumbprint'. Enter the private key certificate's thumbprint.
 - **MgApp_EncryptedCertificatePassword (Encrypted Standard String):** Optionally used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateFile'. If the account the process runs under cannot decrypt the private key certificate file, the script will attempt to do so using this password. Enter the encrypted standard string of the password into this field. An encrypted standard string can be converted back to its secure string format but **only by the same account on the same computer it was encrypted from**. You can use the [New-EncryptedPassword script](https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily convert a password to an encrypted standard string.
@@ -93,7 +110,7 @@ ExchangeOnline
 - TODO: Documentation forthcoming. Only used when 'SupportExchangeGroups' is set to 'true'.
 
 Logging
-- Optionally, enter the logging information based on the [documentation](https://psframework.org/docs/category/logging) for the PowerShell Framework module. If you do not want to use the logging system, set the logging 'Enabled' field to false.
+- Optionally, enter the logging information based on the [documentation](https://psframework.org/docs/category/logging) for the PowerShell Framework module. If you do not want to use the logging system, set the logging 'Enabled' field to false. Backslashes in paths, such as 'FilePath' and 'LogRotatePath', must be escaped; see [Escaping Backslashes and Quotes](#escaping-backslashes-and-quotes).
 
 Email
 - Optionally, enter the email provider information based on the [documentation](https://github.com/EvotecIT/Mailozaurr) for the Mailozaurr module. If you do not want to use the email alert system, set both the 'EmailonError' and 'EmailonWarning' fields to false.
