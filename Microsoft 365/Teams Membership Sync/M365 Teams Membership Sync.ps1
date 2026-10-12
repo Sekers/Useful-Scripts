@@ -29,6 +29,13 @@
 # PowerShell Framework Module (optional; for modern logging - https://psframework.org/).
 # Mailozaurr PowerShell Module (optional; for modern email alerts - https://github.com/EvotecIT/Mailozaurr).
 
+###########
+# VERSION #
+###########
+
+# See CHANGELOG.md for the changes in each version.
+$ScriptVersion = '1.0.0'
+
 #############
 # FUNCTIONS #
 #############
@@ -201,6 +208,7 @@ if ($LoggingEnabled)
 {
     Set-PSFLoggingProvider @paramSetPSFLoggingProvider
     Write-PSFMessage -Level Important -Message "---SCRIPT BEGIN---"
+    Write-PSFMessage -Level Important -Message "Script Version: $ScriptVersion"
     Write-PSFMessage -Level Verbose -Message "PowerShell Version: $($PSVersionTable.PSVersion.ToString()), $($PSVersionTable.PSEdition.ToString())$(if([Environment]::Is64BitProcess){$(", 64Bit")}else{$(", 32Bit")})"
     foreach ($moduleInfo in Get-Module)
     {
