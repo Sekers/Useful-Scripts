@@ -13,23 +13,21 @@ See the [changelog](CHANGELOG.md) for the changes in each version.
 - Adds mapped group members to Teams and Channels (Private Channels only).
 - Optionally removes members who no longer are mapped to a Team or Channel (allows for user exceptions if enabled).
 - Optionally allows for group recursion/nesting.
-- Written to take advantage of the latest Microsoft Microsoft Graph API PowerShell module.
+- Calls the Microsoft Graph API directly, using the Microsoft Graph PowerShell SDK only to sign in. This allows the script to bypass bugs in the SDK module.
 - Easily update settings using JSON config files.
 - Authentication options:
-    - Delegated Permissions (run using a signed-in user).
-    - Application Permissions (application consented by an administrator and authenticated by certificate or secret).
+  - Delegated Permissions (run using a signed-in user).
+  - Application Permissions (application consented by an administrator and authenticated by certificate or secret).
 - Optional non-blocking logging & email alerting (see prerequisite modules).
 - Debugging options.
 
 ---
 
-## PREREQUISITES 
+## PREREQUISITES
 
-- [Microsoft.Graph Module:](https://github.com/microsoftgraph/msgraph-sdk-powershell) Microsoft's Graph API PowerShell module. Required by the script.
-  - **Note:** Versions of the SDK past 2.25.0 have a [known bug with Get-MgTeamChannelMember](https://github.com/microsoftgraph/msgraph-sdk-powershell/issues/3296) that has yet to be resolved in the latest version (last checked: 2.29.1). Use 2.25.0 until it has been resolved.
-  - **Note:** Versions of the SDK past 2.25.0 also have a [known bug with New-MgTeamChannelMember & Update-MgTeamChannelMember](https://github.com/microsoftgraph/msgraph-sdk-powershell/issues/3471) that has yet to be resolved in the latest version (last checked: 2.39.0). From 2.27.0 on, both cmdlets ship duplicate, indistinguishable parameter sets that fail with a 'Parameter set cannot be resolved' error, and they no longer target the channel 'members' endpoint. Version 2.26.0 fails differently, sending an invalid 'visibleHistoryStartDateTime' value in the request body. Use 2.25.0 until it has been resolved.
+- [PowerShell 7.6 or later:](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows) Required. Windows PowerShell 5.1 isn't supported, following Microsoft's [retirement of Windows PowerShell 5.1 support in the Microsoft Graph PowerShell SDK](https://devblogs.microsoft.com/microsoft365dev/investing-in-a-more-reliable-microsoft-graph-powershell-experience/).
+- [Microsoft.Graph.Authentication Module:](https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication) Version 2.41.2 or later. Required. The script signs in with this module and calls the Microsoft Graph API directly, so it doesn't need any other Microsoft Graph module.
 - [Microsoft Exchange Online Management Module:](https://aka.ms/exov3-module) For Exchange group support. Optional and only needed if you want to manage mail-enabled security groups and/or distribution groups.
-  - **Note:** The Exchange Online Management PowerShell module does not play well with the Microsoft Graph SDK PowerShell module on PowerShell 7.x. If you need Exchange support, we currently recommend using PowerShell 5.1 until the two teams can resolve the conflict on newer versions of PowerShell. [Click here for more information.](https://github.com/microsoftgraph/msgraph-sdk-powershell/issues/3576)
 - [PowerShell Framework Module:](https://psframework.org/) For modern logging. Optional and only needed if using the logging functionality.
 - [Mailozaurr PowerShell Module:](https://github.com/EvotecIT/Mailozaurr) For modern email alerts. Optional and only needed if using the email alerting functionality.
 
@@ -50,7 +48,7 @@ JSON uses the backslash as an escape character, so backslashes and double quotes
 To escape a value for you, use either of the following. Both give the value with its surrounding double quotes, so the result replaces the whole value, quotes included.
 
 - **[CyberChef](https://gchq.github.io/CyberChef/#recipe=Remove_whitespace(false,true,true,false,false,false)Find_/_Replace(%7B'option':'Regex','string':'%5E%22%7C%22$'%7D,'',true,false,false,false)Escape_string('Minimal','Double',true,false,false)):** Opens with the right settings. Paste your value into Input and copy the Output. It ignores line breaks.
-- **PowerShell:** Run the command below with your value between the single quotes, which stop PowerShell from expanding variables such as `$PSScriptRoot`. Windows PowerShell 5.1 may write some characters as codes, such as `\u0027` for an apostrophe; that's still valid JSON.
+- **PowerShell:** Run the command below with your value between the single quotes, which stop PowerShell from expanding variables such as `$PSScriptRoot`.
 
   ```powershell
   '$PSScriptRoot\Config\PrivateKeyCertificate.pfx' | ConvertTo-Json
@@ -63,6 +61,7 @@ To escape a value for you, use either of the following. Both give the value with
 JSON file that contains the primary configuration settings for the script.
 
 General
+
 - **ScriptName (String):** Name of script for email alerts and logging.
 - **EmailonError (Boolean):** Whether to use the email functionality to email an alert on script-stopping errors.
 - **EmailonWarning (Boolean):** Whether to use the email functionality to email an alert on non-critical warnings.
@@ -74,34 +73,35 @@ General
 - **HandleDisabledAccounts (Boolean)**: Gather and process disabled accounts on the tenant to allow for removal from Teams. This only applies for Teams mappings because disabled user accounts are not returned as active Team members.
 
 MSGraph
+
 - **MgProfile (String):** Specifies the Microsoft Graph API profile version. Use 'v1.0', etc.
 - **MgPermissionType (String):** Set the [type of permission](https://learn.microsoft.com/en-us/graph/auth/auth-concepts#delegated-and-application-permissions) you want to use to access the Microsoft Graph API.
-    - **Delegated:** The delegated option will cause the script to prompt for a user to sign in and is only recommended for interactive use. In this case, either the user or an administrator would consent to the permissions needed for the script to access the necessary permission scopes. If you disconnect from the Graph API or if the [tokens expire](https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes), you will need to reauthenticate. Because sign-in is interactive and uses your own app registration (the 'MgClientID' app), that app registration must have a redirect URI of 'http://localhost' registered. In the Entra admin center, go to App registrations > your app > Authentication > Add a platform > Mobile and desktop applications and add 'http://localhost'. Scopes needed by this script for delegated permissions are:
+  - **Delegated:** The delegated option will cause the script to prompt for a user to sign in and is only recommended for interactive use. In this case, either the user or an administrator would consent to the permissions needed for the script to access the necessary permission scopes. If you disconnect from the Graph API or if the [tokens expire](https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes), you will need to reauthenticate. Because sign-in is interactive and uses your own app registration (the 'MgClientID' app), that app registration must have a redirect URI of `http://localhost` registered. In the Entra admin center, go to App registrations > your app > Authentication > Add a platform > Mobile and desktop applications and add `http://localhost`. Scopes needed by this script for delegated permissions are:
 
-        | Delegated Permission | Display String | Admin Consent Required |
-        | ---------- | -------------- | ---------------------- |
-        | [User.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-82) | Read all users' full profiles. | Yes |
-        | [Group.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-32) | Read all groups. | Yes |
-        | [TeamMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-74) | Add and remove members from teams. | Yes |
-        | [ChannelMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-12) | Add and remove members from all channels. | Yes |
-    
-    - **Application:** This is the preferred option when you want the script to run or be automated without a signed-in user present. For example, apps that run as background services or daemons. Application permissions can only be [consented by an administrator](https://learn.microsoft.com/en-us/azure/active-directory/develop/active-directory-v2-scopes#requesting-consent-for-an-entire-tenant). You will need to [register the script as an app](https://learn.microsoft.com/en-us/graph/auth-v2-service#1-register-your-app) and then [grant admin consent for the necessary scopes](https://learn.microsoft.com/en-us/graph/auth-v2-service#2-configure-permissions-for-microsoft-graph):
+    | Delegated Permission | Display String | Admin Consent Required |
+    | ---------- | -------------- | ---------------------- |
+    | [User.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-82) | Read all users' full profiles. | Yes |
+    | [Group.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-32) | Read all groups. | Yes |
+    | [TeamMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-74) | Add and remove members from teams. | Yes |
+    | [ChannelMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#delegated-permissions-12) | Add and remove members from all channels. | Yes |
 
-        | Application Permission | Display String | Admin Consent Required |
-        | ---------- | -------------- | ---------------------- |
-        | [User.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-78) | Read all users' full profiles. | Yes |
-        | [Group.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-31) | Read all groups. | Yes |
-        | [TeamMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-70) | Add and remove members from teams. | Yes |
-        | [ChannelMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-12) | Add and remove members from all channels. | Yes |
-    
+  - **Application:** This is the preferred option when you want the script to run or be automated without a signed-in user present. For example, apps that run as background services or daemons. Application permissions can only be [consented by an administrator](https://learn.microsoft.com/en-us/azure/active-directory/develop/active-directory-v2-scopes#requesting-consent-for-an-entire-tenant). You will need to [register the script as an app](https://learn.microsoft.com/en-us/graph/auth-v2-service#1-register-your-app) and then [grant admin consent for the necessary scopes](https://learn.microsoft.com/en-us/graph/auth-v2-service#2-configure-permissions-for-microsoft-graph):
+
+    | Application Permission | Display String | Admin Consent Required |
+    | ---------- | -------------- | ---------------------- |
+    | [User.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-78) | Read all users' full profiles. | Yes |
+    | [Group.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-31) | Read all groups. | Yes |
+    | [TeamMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-70) | Add and remove members from teams. | Yes |
+    | [ChannelMember.ReadWrite.All](https://learn.microsoft.com/en-us/graph/permissions-reference#application-permissions-12) | Add and remove members from all channels. | Yes |
+
 - **MgDisconnectWhenDone (Boolean):** Specifies whether to disconnect from the Graph API when the script finishes. If you do not disconnect, Microsoft Graph PowerShell automatically refreshes the access token for you and sign-in persists across PowerShell sessions because Microsoft Graph PowerShell securely caches the token.
 - **MgClientID (String):** This is where you would enter the [registered application ID value](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-service-principal-portal#get-tenant-and-app-id-values-for-signing-in).
 - **MgTenantID (String):** This is where you would enter the [registered tenant ID value](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-service-principal-portal#get-tenant-and-app-id-values-for-signing-in).
 - **MgApp_AuthenticationType (String):** Only used when 'MgPermissionType' is set to 'Application'. Authentication options include:
-    - **CertificateFile:** Tells the script that you will specify a path to a certificate with a private key. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
-    - **CertificateName:** Tells the script that you will specify the Common Name (e.g. 'CN=My Test Certificate Name') of a certificate with a private key. This certificate should be in the current user certificate store of the account that the script runs under. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
-    - **CertificateThumbprint:** Tells the script that you will specify the thumbprint of a certificate with a private key.  This certificate should be in the current user certificate store of the account that the script runs under. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
-    - **ClientSecret:** Tells the script that you will specify a client secret, sometimes called an *application password*. Client secrets are considered less secure than certificate credentials. Application developers sometimes use client secrets during local app development because of their ease of use. However, you should use certificate credentials for any of your applications that are running in production. You can [add a client secret for the registered application](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-client-secret) from the Azure portal. Client secret expiration is now limited to a maximum of [two years](https://devblogs.microsoft.com/microsoft365dev/client-secret-expiration-now-limited-to-a-maximum-of-two-years/). It's recommended to use PowerShell 7 and above when using client secret credentials.
+  - **CertificateFile:** Tells the script that you will specify a path to a certificate with a private key. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
+  - **CertificateName:** Tells the script that you will specify the Common Name (e.g. 'CN=My Test Certificate Name') of a certificate with a private key. This certificate should be in the current user certificate store of the account that the script runs under. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
+  - **CertificateThumbprint:** Tells the script that you will specify the thumbprint of a certificate with a private key.  This certificate should be in the current user certificate store of the account that the script runs under. The paired public certificate (without a private key) should be [added to the registered Azure app registration](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-certificate). For testing, you can [create a self-signed public certificate](https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-self-signed-certificate) instead of using a Certificate Authority (CA)-signed certificate.
+  - **ClientSecret:** Tells the script that you will specify a client secret, sometimes called an *application password*. Client secrets are considered less secure than certificate credentials. Application developers sometimes use client secrets during local app development because of their ease of use. However, you should use certificate credentials for any of your applications that are running in production. You can [add a client secret for the registered application](https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-a-client-secret) from the Azure portal. Client secret expiration is now limited to a maximum of [two years](https://devblogs.microsoft.com/microsoft365dev/client-secret-expiration-now-limited-to-a-maximum-of-two-years/).
 - **MgApp_CertificatePath (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateFile'. Enter the path where the private key certificate file is located. You can include PowerShell code and variables (e.g., `"$PSScriptRoot\\Config\\PrivateKeyCertificate.pfx"`). Backslashes and double quotes must be escaped; see [Escaping Backslashes and Quotes](#escaping-backslashes-and-quotes).
 - **MgApp_CertificateName (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateName'. Enter the Common Name of the private key certificate. E.g., "CN=My Test Certificate Name".
 - **MgApp_CertificateThumbprint (String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'CertificateThumbprint'. Enter the private key certificate's thumbprint.
@@ -109,21 +109,25 @@ MSGraph
 - **MgApp_EncryptedSecret (Encrypted Standard String):** Only used when 'MgPermissionType' is set to 'Application' and 'MgApp_AuthenticationType' is set to 'ClientSecret'. Enter the encrypted standard string of the password into this field. An encrypted standard string can be converted back to its secure string format but **only by the same account on the same computer it was encrypted from**. You can use the [New-EncryptedPassword script](https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily convert a password to an encrypted standard string.
 
 ExchangeOnline
+
 - TODO: Documentation forthcoming. Only used when 'SupportExchangeGroups' is set to 'true'.
 
 Logging
+
 - Optionally, enter the logging information based on the [documentation](https://psframework.org/docs/category/logging) for the PowerShell Framework module. If you do not want to use the logging system, set the logging 'Enabled' field to false. Backslashes in paths, such as 'FilePath' and 'LogRotatePath', must be escaped; see [Escaping Backslashes and Quotes](#escaping-backslashes-and-quotes).
 
 Email
+
 - Optionally, enter the email provider information based on the [documentation](https://github.com/EvotecIT/Mailozaurr) for the Mailozaurr module. If you do not want to use the email alert system, set both the 'EmailonError' and 'EmailonWarning' fields to false.
 - We recommend sending email using the more secure OAuth 2.0 or Graph API options, but the module also supports SMTP with a standard password (for example, if you use App Passwords to send email). This script allows for the email 'Password' field to be entered either as plain text or as an encrypted standard string. An encrypted standard string can be converted back to its secure string format but **only by the same account on the same computer it was encrypted from**. You can use the [New-EncryptedPassword script](https://github.com/Sekers/Useful-Scripts/tree/main/Password%20Tools/New-EncryptedPassword) to easily convert a password to an encrypted standard string.
 
 Debugging
+
 - **VerbosePreference (String):** Determines how PowerShell responds to verbose messages generated by a script, cmdlet, or provider, such as the messages generated by the Write-Verbose cmdlet. Verbose messages describe the actions performed to execute a command. Valid values are listed below and you can find more information in Microsoft's [preference variables documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_preference_variables?view=powershell-7.2#verbosepreference).
-    - **Stop:** Displays the verbose message and an error message and then stops executing.
-    - **Inquire:** Displays the verbose message and then displays a prompt that asks you whether you want to continue.
-    - **Continue:** Displays the verbose message and then continues with execution.
-    - **SilentlyContinue:** (Default) Doesn't display the verbose message. Continues executing.
+  - **Stop:** Displays the verbose message and an error message and then stops executing.
+  - **Inquire:** Displays the verbose message and then displays a prompt that asks you whether you want to continue.
+  - **Continue:** Displays the verbose message and then continues with execution.
+  - **SilentlyContinue:** (Default) Doesn't display the verbose message. Continues executing.
 - **LogDebugInfo (Boolean):** Specifies whether to log information the script normally considers unnecessary except when troubleshooting. The logging provider needs to be enabled for this feature to work.
 
 ---
@@ -138,8 +142,8 @@ JSON file that contains an array of Teams and/or Team Channels (Private Channels
 - **M365_Channel_DisplayName (String):** Only used when 'MapType' is set to 'Channel'. Optionally, enter a name for the Channel. This field is only used to more easily identify the Channel when looking at the config file.
 - **M365_Channel_ID (String):** Enter the Channel ID. You can find it using [Get-MgTeamChannel](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.teams/get-mgteamchannel) or in the [Teams Admin Center](https://admin.teams.microsoft.com/teams/manage) (you can find it when inside the channel by looking at the URL in your web browser and copying everything after '/channels/'). E.g., "19:aac3e13cd5f99827b60cdb0b6df37a3e@thread.tacv2".
 - **Groups (Array):** Array containing the following fields for *each* group. You can map zero (if you want a placeholder for a Team/Channel) or more groups to a Team or Channel.
-    - **M365_Group_DisplayName (String):** Optionally, enter a name for the group. This field is only used to more easily identify the group when looking at the config file.
-    - **M365_Group_ID (String):** Enter the group ID. You can find it using [Get-MgGroup](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.groups/get-mggroup) or, for Azure AD groups only, in the [Azure AD Admin Center](https://aad.portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/Groups).
+  - **M365_Group_DisplayName (String):** Optionally, enter a name for the group. This field is only used to more easily identify the group when looking at the config file.
+  - **M365_Group_ID (String):** Enter the group ID. You can find it using [Get-MgGroup](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.groups/get-mggroup) or, for Azure AD groups only, in the [Azure AD Admin Center](https://aad.portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/Groups).
 
 ---
 

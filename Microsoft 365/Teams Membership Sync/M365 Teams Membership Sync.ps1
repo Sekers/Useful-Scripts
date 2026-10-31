@@ -20,11 +20,8 @@
 # PREREQUISITES #
 #################
 
-# Microsoft.Graph Module (https://learn.microsoft.com/en-us/powershell/microsoftgraph/). Sub-modules needed:
-# - Microsoft.Graph.Groups
-# - Microsoft.Graph.Teams
-# - Microsoft.Graph.Users
-# - Microsoft.Graph.Authentication (should automatically install along with any of the other Graph sub-modules as a dependency).
+# PowerShell 7.6 or later (https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows).
+# Microsoft.Graph.Authentication Module 2.41.2 or later (https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication).
 # Exchange Online PowerShell Module (optional; for Exchange Online group support - https://learn.microsoft.com/en-us/powershell/exchange/exchange-online-powershell)
 # PowerShell Framework Module (optional; for modern logging - https://psframework.org/).
 # Mailozaurr PowerShell Module (optional; for modern email alerts - https://github.com/EvotecIT/Mailozaurr).
@@ -34,13 +31,82 @@
 ###########
 
 # See CHANGELOG.md for the changes in each version.
-$ScriptVersion = '1.0.0'
+$ScriptVersion = '2.0.0'
 
 #############
 # FUNCTIONS #
 #############
 
-# None at this time.
+# Send a request to the Microsoft Graph API using the Connect-MgGraph sign-in. For a GET that returns a list, get every page.
+# Don't name this Invoke-GraphRequest. Microsoft.Graph.Authentication has an alias by that name, and aliases run before functions.
+function Invoke-MTMSGraphRequest
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateSet('GET', 'POST', 'PATCH', 'DELETE')]
+        [string]$Method,
+
+        [Parameter(
+            Mandatory = $true)]
+        [string]$Uri, # E.g., "v1.0/groups/$GroupId/members". Escape IDs with [uri]::EscapeDataString().
+
+        [Parameter(
+            Mandatory = $false)]
+        [hashtable]$Body
+    )
+
+    $RequestParameters = @{
+        Method      = $Method
+        Uri         = $Uri
+        OutputType  = 'PSObject'
+        ErrorAction = 'Stop'
+    }
+    if ($null -ne $Body)
+    {
+        # Convert to JSON here so empty & one-item arrays stay arrays.
+        $RequestParameters.Body = ConvertTo-Json -InputObject $Body -Depth 10 -Compress
+        $RequestParameters.ContentType = 'application/json'
+    }
+
+    # Rethrow errors so the log & email show the line that called this function.
+    try
+    {
+        $Response = Invoke-MgGraphRequest @RequestParameters
+    }
+    catch
+    {
+        $PSCmdlet.ThrowTerminatingError($_)
+    }
+
+    if ($Method -ne 'GET' -or $null -eq $Response -or $Response.PSObject.Properties.Name -notcontains 'value')
+    {
+        return $Response
+    }
+
+    while ($true)
+    {
+        foreach ($item in $Response.value)
+        {
+            $item
+        }
+
+        if ([string]::IsNullOrEmpty($Response.'@odata.nextLink'))
+        {
+            break
+        }
+
+        try
+        {
+            $Response = Invoke-MgGraphRequest -Method GET -Uri $Response.'@odata.nextLink' -OutputType PSObject -ErrorAction Stop
+        }
+        catch
+        {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+    }
+}
 
 ##################
 # Error Handling #
@@ -150,18 +216,8 @@ $EmailArguments = @{
 # Import Modules #
 ##################
 
-# Check For Microsoft.Graph Module.
-# Don't import the entire 'Microsoft.Graph' module because of some issues with doing it that way. Only import the needed modules.
+# Import Microsoft.Graph.Authentication Module. It's checked after logging starts so a missing or old module is logged & emailed.
 Import-Module 'Microsoft.Graph.Authentication' -ErrorAction SilentlyContinue
-Import-Module 'Microsoft.Graph.Groups' -ErrorAction SilentlyContinue
-Import-Module 'Microsoft.Graph.Teams' -ErrorAction SilentlyContinue
-Import-Module 'Microsoft.Graph.Users' -ErrorAction SilentlyContinue
-if (!(Get-Module -Name 'Microsoft.Graph.Groups') -or !(Get-Module -Name 'Microsoft.Graph.Teams') -or !(Get-Module -Name 'Microsoft.Graph.Users'))
-{
-    # Module is not available.
-    Write-Error "Please first install the Microsoft.Graph Groups, Teams & Users sub-modules from https://www.powershellgallery.com/packages/Microsoft.Graph/ "
-    Return
-}
 
 # Check For Exchange Online PowerShell Module.
 if ($SupportExchangeGroups)
@@ -221,7 +277,23 @@ try
     # Initialize Variables.
     $CustomWarningMessage = $null
 
-    # Connect to the Microsoft Graph API.    
+    # Check PowerShell & module versions here so a failed check is logged & emailed ('#Requires' would stop before logging starts).
+    # Only check major/minor so 7.6 previews pass.
+    if ($PSVersionTable.PSVersion.Major -lt 7 -or ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -lt 6))
+    {
+        throw "PowerShell 7.6 or later is required, but this is PowerShell $($PSVersionTable.PSVersion). Run the script with pwsh.exe instead of powershell.exe."
+    }
+    $MgAuthenticationModule = Get-Module -Name 'Microsoft.Graph.Authentication' | Select-Object -First 1
+    if ($null -eq $MgAuthenticationModule)
+    {
+        throw "Please first install the Microsoft.Graph.Authentication module (version 2.41.2 or later) from https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication/ "
+    }
+    if ($MgAuthenticationModule.Version -lt [version]'2.41.2')
+    {
+        throw "Microsoft.Graph.Authentication 2.41.2 or later is required, but version $($MgAuthenticationModule.Version) is loaded. Please update it from https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication/ "
+    }
+
+    # Connect to the Microsoft Graph API.
     if ($LoggingEnabled) {Write-PSFMessage -Level Important -Message "Connecting to Microsoft Graph With Permission Type: $MgPermissionType"}
     switch ($MgPermissionType)
     {
@@ -248,14 +320,6 @@ try
             switch ($MgApp_AuthenticationType)
             {
                 CertificateFile {
-                    # This is only supported using PowerShell 7.4 and later because 5.1 is missing the necessary parameters when using 'Get-PfxCertificate'.
-                    if ($PSVersionTable.PSVersion -lt [Version]'7.4')
-                    {
-                        $NewMessage = "Connecting to Microsoft Graph using a certificate file is only supported with PowerShell version 7.4 and later."
-                        Write-PSFMessage -Level Error $NewMessage
-                        throw $NewMessage
-                    }
-
                     # Try accessing private key certificate without password using current process credentials.
                     [X509Certificate]$MgApp_Certificate = $null
                     try
@@ -286,27 +350,8 @@ try
                     $null = Connect-MgGraph -TenantId $MgTenantID -ClientId $MgClientID -CertificateThumbprint $MgApp_CertificateThumbprint
                 }
                 ClientSecret {
-                    [System.Version]$GraphAuthVersion = Get-Module -Name 'Microsoft.Graph.Authentication' | Select-Object -ExpandProperty Version
-                    if ($GraphAuthVersion -lt [System.Version]'2.0.0')
-                    {
-                        $MgApp_Secret = [System.Net.NetworkCredential]::new("", $($MgApp_EncryptedSecret | ConvertTo-SecureString)).Password # Can only be decrypted by the same AD account on the same computer.
-                        $Body =  @{
-                            Grant_Type    = "client_credentials"
-                            Scope         = "https://graph.microsoft.com/.default"
-                            Client_Id     = $MgClientID
-                            Client_Secret = $MgApp_Secret
-                        }
-                        $Connection = Invoke-RestMethod `
-                            -Uri https://login.microsoftonline.com/$MgTenantID/oauth2/v2.0/token `
-                            -Method POST `
-                            -Body $Body
-                        $null = Connect-MgGraph -AccessToken $($Connection.access_token | ConvertTo-SecureString -AsPlainText -Force)
-                    }
-                    else # If Graph PowerShell SDK is version 2.0.0 or higher.
-                    {
-                        $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $MgClientID, $($MgApp_EncryptedSecret | ConvertTo-SecureString)
-                        $null = Connect-MgGraph -TenantId $MgTenantID -ClientSecretCredential $ClientSecretCredential
-                    }
+                    $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $MgClientID, $($MgApp_EncryptedSecret | ConvertTo-SecureString)
+                    $null = Connect-MgGraph -TenantId $MgTenantID -ClientSecretCredential $ClientSecretCredential
                 }
                 Default {throw "Invalid `'MgApp_AuthenticationType`' value in the configuration file."}
             }
@@ -378,11 +423,11 @@ try
         {        
             if ($EnableGroupRecursion)
             {
-                [array]$ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All| Select-Object *
+                [array]$ListItemsToAdd = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapGroup.M365_Group_ID))/transitiveMembers"
             }
             else
             {
-                [array]$ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+                [array]$ListItemsToAdd = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapGroup.M365_Group_ID))/members"
             }
 
             foreach ($listItemToAdd in $ListItemsToAdd)
@@ -395,19 +440,19 @@ try
             }
         }
 
-        [array]$Users = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.user'}
-        [array]$Groups = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.group'}
-        
+        [array]$Users = $Members | Where-Object -FilterScript {$_.'@odata.type' -EQ '#microsoft.graph.user'}
+        [array]$Groups = $Members | Where-Object -FilterScript {$_.'@odata.type' -EQ '#microsoft.graph.group'}
+
         # Get current Group members.
-        [array]$CurrentGroupMembers = Get-MgGroupMember -GroupId $mapping.M365_Group_ID -All
+        [array]$CurrentGroupMembers = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapping.M365_Group_ID))/members"
 
         # Log debug info, if enabled.
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Group Members (Email): $($CurrentGroupMembers.AdditionalProperties.mail -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.userPrincipalName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Group Members (Email): $($CurrentGroupMembers.mail -join ', ')"}
 
         # Get the type of group.
-        $GroupInfo = Get-MgGroup -GroupId $mapping.M365_Group_ID
+        $GroupInfo = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapping.M365_Group_ID))"
 
         # Add/Update users if there is at least one user in the mapped groups.
         if ($Users.Count -ge 1)
@@ -423,7 +468,7 @@ try
                     if ($CurrentGroupMembers.Id -notcontains $user.Id)
                     {
                         $NewMember = [PSCustomObject]@{
-                            DisplayName = $user.AdditionalProperties.displayName
+                            DisplayName = $user.displayName
                             UserID      = $user.Id
                             Value       = "https://graph.microsoft.com/$MgProfile/directoryObjects/$($user.Id)"
                         }
@@ -451,8 +496,8 @@ try
                         foreach ($chunkOfValues in $ChunksOfValues)
                         {
                             $Parameters = @{ }
-                            $Parameters.Add('members@odata.bind',$chunkOfValues)
-                            Update-MgGroup -GroupId $mapping.M365_Group_ID -BodyParameter $Parameters
+                            $Parameters.Add('members@odata.bind',@($chunkOfValues))
+                            Invoke-MTMSGraphRequest -Method PATCH -Uri "v1.0/groups/$([uri]::EscapeDataString($mapping.M365_Group_ID))" -Body $Parameters
                         }
                     }
                     catch
@@ -503,7 +548,7 @@ try
                                 try
                                 {
                                     Add-DistributionGroupMember -Identity $mapping.M365_Group_ID -Member $newMember.Id -BypassSecurityGroupManagerCheck -Confirm:$false
-                                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Added member: $($newMember.AdditionalProperties.displayName) {$($newMember.Id)}"}
+                                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Added member: $($newMember.displayName) {$($newMember.Id)}"}
                                 }
                                 catch
                                 {
@@ -558,11 +603,11 @@ try
 
                 if ($Users.Id -notcontains $CurrentGroupMember.Id)
                 {
-                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing member from Group `'$($mapping.M365_Group_DisplayName)`': $($CurrentGroupMember.AdditionalProperties.displayName)"}
-                    
-                    if (($GroupInfo.GroupTypes -contains 'Unified') -or ($GroupInfo.SecurityEnabled -eq $true -and $GroupInfo.ProxyAddresses.count -eq 0)) # If M365 group or non-mail-enabled security group. 
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing member from Group `'$($mapping.M365_Group_DisplayName)`': $($CurrentGroupMember.displayName)"}
+
+                    if (($GroupInfo.GroupTypes -contains 'Unified') -or ($GroupInfo.SecurityEnabled -eq $true -and $GroupInfo.ProxyAddresses.count -eq 0)) # If M365 group or non-mail-enabled security group.
                     {
-                        Remove-MgGroupMemberByRef -GroupId $mapping.M365_Group_ID -DirectoryObjectId $CurrentGroupMember.Id
+                        Invoke-MTMSGraphRequest -Method DELETE -Uri "v1.0/groups/$([uri]::EscapeDataString($mapping.M365_Group_ID))/members/$([uri]::EscapeDataString($CurrentGroupMember.Id))/`$ref"
                     }
                     elseif((-not ($GroupInfo.GroupTypes -contains 'Unified')) -and ($GroupInfo.ProxyAddresses.count -ge 1)) # If mail-enabled security group or distribution group.
                     {
@@ -617,7 +662,7 @@ try
     if ($HandleDisabledAccounts)
     {
         if ($LoggingEnabled) { Write-PSFMessage -Level Important -Message "Gathering Disabled Users" }
-        [array]$DisabledUsers = Get-MgUser -Filter "accountEnabled eq false" -All
+        [array]$DisabledUsers = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/users?`$filter=$([uri]::EscapeDataString('accountEnabled eq false'))&`$select=id"
     }
 
     # Loop through the Groups mapping array and process TEAMS.
@@ -632,14 +677,14 @@ try
         $Members = [System.Collections.Generic.List[Object]]::new()
         $MemberRoles = [System.Collections.Generic.List[Object]]::new()
         foreach ($mapGroup in $mapping.Groups)
-        {        
+        {
             if ($EnableGroupRecursion)
             {
-                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All| Select-Object *
+                $ListItemsToAdd = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapGroup.M365_Group_ID))/transitiveMembers"
             }
             else
             {
-                $ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+                $ListItemsToAdd = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapGroup.M365_Group_ID))/members"
             }
 
             foreach ($listItemToAdd in $ListItemsToAdd)
@@ -653,23 +698,23 @@ try
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamDisplayName" -Value $mapping.M365_Team_DisplayName
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "TeamID" -Value $mapping.M365_Team_ID
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberID" -Value $ListItemToAdd.Id
-                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.AdditionalProperties.displayName
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.displayName
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value $mapGroup.Role
                     $MemberRoles.Add($MemberRole)
                 }
             }
         }
 
-        [array]$Users = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.user'}
-        [array]$Groups = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.group'}
-        
+        [array]$Users = $Members | Where-Object -FilterScript {$_.'@odata.type' -EQ '#microsoft.graph.user'}
+        [array]$Groups = $Members | Where-Object -FilterScript {$_.'@odata.type' -EQ '#microsoft.graph.group'}
+
         # Get current Team members.
-        [array]$CurrentTeamMembers = Get-MgTeamMember -TeamId $mapping.M365_Team_ID -All
+        [array]$CurrentTeamMembers = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members"
 
         # Log debug info, if enabled.
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Team Members (Email): $($CurrentTeamMembers.AdditionalProperties.email -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.userPrincipalName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Team Members (Email): $($CurrentTeamMembers.email -join ', ')"}
 
         # Add users if there is at least one user in the mapped groups.
         if ($Users.Count -ge 1)
@@ -679,7 +724,7 @@ try
             [array]$values = foreach ($userId in $Users.Id)
             {
                 # Only add users if they aren't already members.
-                if ($CurrentTeamMembers.AdditionalProperties.userId -notcontains $userId)
+                if ($CurrentTeamMembers.userId -notcontains $userId)
                 {
                     # Check if member is to be an Owner of the Team. If an Owner, they will be in BOTH the Owners & Members list.
                     $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $userId
@@ -688,7 +733,7 @@ try
                     {
                         @{
                             "@odata.type"     = "microsoft.graph.aadUserConversationMember"
-                            Roles             = @('owner')
+                            roles             = @('owner')
                             "User@odata.bind" = "https://graph.microsoft.com/$MgProfile/users('$userId')"
                         }
                     }
@@ -696,7 +741,7 @@ try
                     {
                         @{
                             "@odata.type"     = "microsoft.graph.aadUserConversationMember"
-                            Roles             = @()
+                            roles             = @()
                             "User@odata.bind" = "https://graph.microsoft.com/$MgProfile/users('$userId')"
                         }
                     }
@@ -708,11 +753,11 @@ try
             {
                 if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding members for Team: $($mapping.M365_Team_DisplayName)"}
                 $Parameters = @{ }
-                $Parameters.Add('Values',$values)
+                $Parameters.Add('values',$values)
 
                 try
                 {
-                    [array]$AddTeamMemberResult = Add-MgTeamMember -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
+                    [array]$AddTeamMemberResult = (Invoke-MTMSGraphRequest -Method POST -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members/microsoft.graph.add" -Body $Parameters).value
                 }
                 catch
                 {
@@ -724,10 +769,19 @@ try
                     continue
                 }
                 
+                # A partial success (HTTP 207) sets 'error' on each member that wasn't added.
                 foreach ($result in $AddTeamMemberResult)
                 {
-                    $Member = $Users | Where-Object {$_.Id -EQ $result.AdditionalProperties.userId} | Select-Object -ExpandProperty AdditionalProperties
-                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Added member: $($Member.displayName) {$($result.AdditionalProperties.userId)}"} # Note that it returns a non-terminating "error" message of 'Microsoft.Graph.PowerShell.Models.MicrosoftGraphPublicError' even when it works. Fortunately, it usually does send a terminating error if there really is a problem.
+                    $Member = $Users | Where-Object {$_.Id -EQ $result.userId}
+                    if ($null -ne $result.error)
+                    {
+                        $NewMessage = "WARNING: Cannot add member `'$($Member.userPrincipalName)`' {$($result.userId)} to Team `'$($mapping.M365_Team_DisplayName)`'. Error Message: $($result.error.code): $($result.error.message)"
+                        if ($LoggingEnabled) {Write-PSFMessage -Level Warning $NewMessage}
+                        # Set Email Warning Message.
+                        $CustomWarningMessage += "`n$NewMessage"
+                        continue
+                    }
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Added member: $($Member.displayName) {$($result.userId)}"}
                 }
             }               
         }
@@ -747,18 +801,18 @@ try
         foreach ($currentTeamMember in $CurrentTeamMembers)
         {
             # Skip excluded accounts indicated by config.
-            if ($MemberRemovalExclusions.Id -contains $currentTeamMember.AdditionalProperties.userId)
+            if ($MemberRemovalExclusions.Id -contains $currentTeamMember.userId)
             {
                 continue
             }
-            
+
             # Remove Extra Team Members.
             if ($RemoveExtraTeamMembers)
             {
-                if (($Users.Id -notcontains $currentTeamMember.AdditionalProperties.userId))
+                if (($Users.Id -notcontains $currentTeamMember.userId))
                 {
                     if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing member from Team `'$($mapping.M365_Team_DisplayName)`': $($currentTeamMember.DisplayName)"}
-                    Remove-MgTeamMember -TeamId $mapping.M365_Team_ID -ConversationMemberId $currentTeamMember.Id
+                    Invoke-MTMSGraphRequest -Method DELETE -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members/$([uri]::EscapeDataString($currentTeamMember.Id))"
 
                     # Go to next member because no need to update ownership.
                     continue
@@ -766,19 +820,19 @@ try
             }
 
             $MemberIsCurrentOwner = if ($($currentTeamMember).Roles -contains 'owner') {$true} else {$false}
-            $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $($currentTeamMember.AdditionalProperties.userId)
+            $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $($currentTeamMember.userId)
             $MemberShouldBeOwner = if ($($MemberMappedRoles).Role -eq 'Owner') {$true} else {$false}
 
             # Remove Owner role, if necessary
             if (($MemberIsCurrentOwner) -and (-not $MemberShouldBeOwner))
             {
-                [array]$NewRolesValue = foreach ($currentMemberRole in $currentTeamMember.Roles)
+                [array]$NewRolesValue = @(foreach ($currentMemberRole in $currentTeamMember.Roles)
                 {
                     if ($currentMemberRole -ne 'owner')
                     {
                         $currentMemberRole
                     }
-                }
+                })
 
                 $Parameters = @{
                     "@odata.type" = "#microsoft.graph.aadUserConversationMember"
@@ -787,8 +841,8 @@ try
                     )
                 }
 
-                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email)"}
-                $UpdateTeamMemberResult = Update-MgTeamMember -ConversationMemberId $currentTeamMember.Id -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
+                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.email)"}
+                $UpdateTeamMemberResult = Invoke-MTMSGraphRequest -Method PATCH -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members/$([uri]::EscapeDataString($currentTeamMember.Id))" -Body $Parameters
             }
 
             # Add Owner role, if necessary
@@ -802,9 +856,9 @@ try
                         $NewRolesValue
                     )
                 }
-                
-                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.AdditionalProperties.email)"}
-                $UpdateTeamMemberResult = Update-MgTeamMember -ConversationMemberId $currentTeamMember.Id -TeamId $mapping.M365_Team_ID -BodyParameter $Parameters
+
+                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Team '$($mapping.M365_Team_DisplayName)' member: $($currentTeamMember.email)"}
+                $UpdateTeamMemberResult = Invoke-MTMSGraphRequest -Method PATCH -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members/$([uri]::EscapeDataString($currentTeamMember.Id))" -Body $Parameters
             }
         }
 
@@ -813,11 +867,11 @@ try
         # We need to do this via groups because disabled user accounts are not returned as Team members.
         if ($HandleDisabledAccounts)
         {
-            [array]$TeamDisabledUsers = Get-MgGroupMember -GroupId $mapping.M365_Team_ID | Where-Object Id -In $DisabledUsers.Id
+            [array]$TeamDisabledUsers = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members" | Where-Object Id -In $DisabledUsers.Id
             foreach ($teamDisabledUser in $TeamDisabledUsers)
             {
-                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing disabled member from Team `'$($mapping.M365_Team_DisplayName)`': $($teamDisabledUser.AdditionalProperties.displayName)"}
-                Remove-MgGroupMemberByRef -GroupId $mapping.M365_Team_ID -DirectoryObjectId $teamDisabledUser.Id
+                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing disabled member from Team `'$($mapping.M365_Team_DisplayName)`': $($teamDisabledUser.displayName)"}
+                Invoke-MTMSGraphRequest -Method DELETE -Uri "v1.0/groups/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members/$([uri]::EscapeDataString($teamDisabledUser.Id))/`$ref"
             }
         }
     }
@@ -841,11 +895,11 @@ try
         {
             if ($EnableGroupRecursion)
             {
-                $ListItemsToAdd = Get-MgGroupTransitiveMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+                $ListItemsToAdd = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapGroup.M365_Group_ID))/transitiveMembers"
             }
             else
             {
-                $ListItemsToAdd = Get-MgGroupMember -GroupId $mapGroup.M365_Group_ID -All | Select-Object *
+                $ListItemsToAdd = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/groups/$([uri]::EscapeDataString($mapGroup.M365_Group_ID))/members"
             }
 
             foreach ($listItemToAdd in $ListItemsToAdd)
@@ -861,24 +915,24 @@ try
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "ChannelDisplayName" -Value $mapping.M365_Channel_DisplayName
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "ChannelID" -Value $mapping.M365_Channel_ID
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberID" -Value $ListItemToAdd.Id
-                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.AdditionalProperties.displayName
+                    $MemberRole | Add-Member -MemberType NoteProperty -Name "MemberDisplayName" -Value $ListItemToAdd.displayName
                     $MemberRole | Add-Member -MemberType NoteProperty -Name "Role" -Value $mapGroup.Role
                     $MemberRoles.Add($MemberRole)
                 }
             }
         }
 
-        [array]$Users = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.user'}
-        [array]$Groups = $Members | Where-Object -FilterScript {$_.'AdditionalProperties'.'@odata.type' -EQ '#microsoft.graph.group'}
-        
+        [array]$Users = $Members | Where-Object -FilterScript {$_.'@odata.type' -EQ '#microsoft.graph.user'}
+        [array]$Groups = $Members | Where-Object -FilterScript {$_.'@odata.type' -EQ '#microsoft.graph.group'}
+
         # Get current Team & Channel members.
-        [array]$CurrentTeamMembers = Get-MgTeamMember -TeamId $mapping.M365_Team_ID -All
-        [array]$CurrentChannelMembers = Get-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -All
+        [array]$CurrentTeamMembers = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/members"
+        [array]$CurrentChannelMembers = Invoke-MTMSGraphRequest -Method GET -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/channels/$([uri]::EscapeDataString($mapping.M365_Channel_ID))/members"
 
         # Log debug info, if enabled.
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.AdditionalProperties.userPrincipalName -join ', ')"}
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.AdditionalProperties.displayName -join ', ')"}
-        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Channel Members (Email): $($CurrentChannelMembers.AdditionalProperties.email -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Users: $($Users.userPrincipalName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Desired Groups: $($Groups.displayName -join ', ')"}
+        if ($LoggingEnabled -and $LogDebugInfo) {Write-PSFMessage -Level Debug -Message "Current Channel Members (Email): $($CurrentChannelMembers.email -join ', ')"}
 
         # Add users if there is at least one user in the mapped groups.
         if ($Users.Count -ge 1)
@@ -888,19 +942,19 @@ try
             [array]$values = foreach ($userId in $Users.Id)
             {
                 # Check if the user is a member of the TEAM the CHANNEL belongs to.
-                if ($CurrentTeamMembers.AdditionalProperties.userId -notcontains $userId)
+                if ($CurrentTeamMembers.userId -notcontains $userId)
                 {
-                    $UserInfo = $Users | Where-Object -Property Id -EQ $userId #| Select-Object -ExpandProperty AdditionalProperties.userPrincipalName
-                    if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add member `'$($UserInfo.AdditionalProperties.userPrincipalName)`' {$userId} to Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' because they are not a member of the parent Team."}
+                    $UserInfo = $Users | Where-Object -Property Id -EQ $userId #| Select-Object -ExpandProperty userPrincipalName
+                    if ($LoggingEnabled) {Write-PSFMessage -Level Warning "WARNING: Cannot add member `'$($UserInfo.userPrincipalName)`' {$userId} to Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' because they are not a member of the parent Team."}
                     # Set Email Warning Message.
-                    $CustomWarningMessage += "`nWARNING: Cannot add member `'$($UserInfo.AdditionalProperties.userPrincipalName)`' {$userId} to Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' because they are not a member of the parent Team."
+                    $CustomWarningMessage += "`nWARNING: Cannot add member `'$($UserInfo.userPrincipalName)`' {$userId} to Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`' because they are not a member of the parent Team."
 
                     # Skip to the next member.
                     continue
                 }
 
                 # Only add users if they aren't already members.
-                if ($CurrentChannelMembers.AdditionalProperties.userId -notcontains $userId)
+                if ($CurrentChannelMembers.userId -notcontains $userId)
                 {
                     # Check if member is to be an Owner of the Channel. If an Owner, they will be in BOTH the Owners & Members list.
                     $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $userId
@@ -911,7 +965,7 @@ try
                     {
                         @{
                             "@odata.type"     = "microsoft.graph.aadUserConversationMember"
-                            Roles             = @('owner')
+                            roles             = @('owner')
                             "User@odata.bind" = "https://graph.microsoft.com/$MgProfile/users('$userId')"
                         }
                     }
@@ -919,7 +973,7 @@ try
                     {
                         @{
                             "@odata.type"     = "microsoft.graph.aadUserConversationMember"
-                            Roles             = @()
+                            roles             = @()
                             "User@odata.bind" = "https://graph.microsoft.com/$MgProfile/users('$userId')"
                         }
                     }
@@ -936,8 +990,8 @@ try
                     if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding members for Channel: $($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)"}
                     foreach ($value in $values)
                     {
-                        $AddChannelMemberResult = New-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $value
-                        if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Added member: $($AddChannelMemberResult.DisplayName) {$($AddChannelMemberResult.AdditionalProperties.userId)}"}
+                        $AddChannelMemberResult = Invoke-MTMSGraphRequest -Method POST -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/channels/$([uri]::EscapeDataString($mapping.M365_Channel_ID))/members" -Body $value
+                        if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Added member: $($AddChannelMemberResult.DisplayName) {$($AddChannelMemberResult.userId)}"}
                     }
             }
         }
@@ -957,17 +1011,17 @@ try
         foreach ($currentChannelMember in $CurrentChannelMembers)
         {
             # Skip excluded accounts indicated by config.
-            if ($MemberRemovalExclusions.Id -contains $currentChannelMember.AdditionalProperties.userId)
+            if ($MemberRemovalExclusions.Id -contains $currentChannelMember.userId)
             {
                 continue
             }
-                            
+
             if ($RemoveExtraChannelMembers)
             {
-                if ($Users.Id -notcontains $currentChannelMember.AdditionalProperties.userId)
+                if ($Users.Id -notcontains $currentChannelMember.userId)
                 {
                     if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing member from Channel `'$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)`': $($currentChannelMember.DisplayName)"}
-                    Remove-MgTeamChannelMember -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -ConversationMemberId $currentChannelMember.Id
+                    Invoke-MTMSGraphRequest -Method DELETE -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/channels/$([uri]::EscapeDataString($mapping.M365_Channel_ID))/members/$([uri]::EscapeDataString($currentChannelMember.Id))"
 
                     # Go to next member because no need to update ownership.
                     continue
@@ -975,19 +1029,19 @@ try
             }
 
             $MemberIsCurrentOwner = if ($($currentChannelMember).Roles -contains 'owner') {$true} else {$false}
-            $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $($currentChannelMember.AdditionalProperties.userId)
+            $MemberMappedRoles = $MemberRoles | Where-Object -Property MemberID -EQ $($currentChannelMember.userId)
             $MemberShouldBeOwner = if ($($MemberMappedRoles).Role -eq 'Owner') {$true} else {$false}
 
             # Remove Owner role, if necessary
             if (($MemberIsCurrentOwner) -and (-not $MemberShouldBeOwner))
             {
-                [array]$NewRolesValue = foreach ($currentMemberRole in $currentChannelMember.Roles)
+                [array]$NewRolesValue = @(foreach ($currentMemberRole in $currentChannelMember.Roles)
                 {
                     if ($currentMemberRole -ne 'owner')
                     {
                         $currentMemberRole
                     }
-                }
+                })
 
                 $Parameters = @{
                     "@odata.type" = "#microsoft.graph.aadUserConversationMember"
@@ -996,8 +1050,8 @@ try
                     )
                 }
 
-                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.AdditionalProperties.email)"}
-                $UpdateChannelMemberResult = Update-MgTeamChannelMember -ConversationMemberId $currentChannelMember.Id -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $Parameters
+                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Removing ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.email)"}
+                $UpdateChannelMemberResult = Invoke-MTMSGraphRequest -Method PATCH -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/channels/$([uri]::EscapeDataString($mapping.M365_Channel_ID))/members/$([uri]::EscapeDataString($currentChannelMember.Id))" -Body $Parameters
             }
 
             # Add Owner role, if necessary
@@ -1011,9 +1065,9 @@ try
                         $NewRolesValue
                     )
                 }
-                
-                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.AdditionalProperties.email)"}
-                $UpdateChannelMemberResult = Update-MgTeamChannelMember -ConversationMemberId $currentChannelMember.Id -TeamId $mapping.M365_Team_ID -ChannelId $mapping.M365_Channel_ID -BodyParameter $Parameters
+
+                if ($LoggingEnabled) {Write-PSFMessage -Level Significant -Message "Adding ownership role for Channel '$($mapping.M365_Team_DisplayName)\$($mapping.M365_Channel_DisplayName)' member: $($currentChannelMember.email)"}
+                $UpdateChannelMemberResult = Invoke-MTMSGraphRequest -Method PATCH -Uri "v1.0/teams/$([uri]::EscapeDataString($mapping.M365_Team_ID))/channels/$([uri]::EscapeDataString($mapping.M365_Channel_ID))/members/$([uri]::EscapeDataString($currentChannelMember.Id))" -Body $Parameters
             }
         }
     }
@@ -1073,8 +1127,8 @@ catch
     # Log Error Message.
     if ($LoggingEnabled) {Write-PSFMessage -Level Error -Message "Error Running Script (Name: `"$($_.InvocationInfo.ScriptName)`" | Line: $($_.InvocationInfo.ScriptLineNumber))" -Tag 'Failure' -ErrorRecord $_}
 
-    # Disconnect from Microsoft Graph API, if enabled in config.
-    if ($MgDisconnectWhenDone)
+    # Disconnect from Microsoft Graph API, if enabled in config & the module loaded.
+    if ($MgDisconnectWhenDone -and (Get-Command -Name 'Disconnect-MgGraph' -ErrorAction SilentlyContinue))
     {
         $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
     }
